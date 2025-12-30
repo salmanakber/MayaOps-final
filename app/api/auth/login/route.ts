@@ -3,6 +3,7 @@ import prisma from '../../../../lib/prisma';
 import { comparePassword, generateToken, isValidEmail } from '../../../../lib/auth';
 import { generateOTP, storeOTP, verifyOTP, getOTPStats } from '../../../../lib/otp';
 import { sendEmail } from '../../../../lib/email';
+import { UserRole } from '@prisma/client';
 
 /**
  * POST /api/auth/login
@@ -59,30 +60,37 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    // Check if this is first-time login (check OTP verification cache)
-    const otpCacheKey = `otp_verified_${user.id}`;
-    const otpCache = await prisma.systemSetting.findUnique({
-      where: { key: otpCacheKey }
-    });
+    // Skip OTP verification for SUPER_ADMIN and ADMIN_UNIQUE roles
+    const shouldSkipOTP = user.role === UserRole.SUPER_ADMIN || user.role === UserRole.ADMIN_UNIQUE;
 
-    let isOTPVerified = false;
-    if (otpCache) {
-      try {
-        const cacheData = JSON.parse(otpCache.value);
-        const cacheExpiry = new Date(cacheData.expiry);
-        if (new Date() < cacheExpiry) {
-          isOTPVerified = true;
-        } else {
-          // Cache expired, delete it
-          await prisma.systemSetting.delete({ where: { key: otpCacheKey } });
+    // Check if this is first-time login (check OTP verification cache)
+    // Only check if OTP is not skipped for this role
+    let isOTPVerified = shouldSkipOTP;
+    const otpCacheKey = `otp_verified_${user.id}`;
+    
+    if (!shouldSkipOTP) {
+      const otpCache = await prisma.systemSetting.findUnique({
+        where: { key: otpCacheKey }
+      });
+
+      if (otpCache) {
+        try {
+          const cacheData = JSON.parse(otpCache.value);
+          const cacheExpiry = new Date(cacheData.expiry);
+          if (new Date() < cacheExpiry) {
+            isOTPVerified = true;
+          } else {
+            // Cache expired, delete it
+            await prisma.systemSetting.delete({ where: { key: otpCacheKey } });
+          }
+        } catch (e) {
+          // Invalid cache data, treat as not verified
         }
-      } catch (e) {
-        // Invalid cache data, treat as not verified
       }
     }
 
-    // If OTP not verified, require OTP
-    if (!isOTPVerified) {
+    // If OTP not verified and not skipped, require OTP
+    if (!isOTPVerified && !shouldSkipOTP) {
       if (!otp) {
         // Generate and send OTP for first-time login
         // Check rate limiting

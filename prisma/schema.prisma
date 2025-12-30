@@ -1,0 +1,759 @@
+// Prisma Schema for MayaOps Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model with role-based access control
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  phone        String?  @map("phone")
+  profileImage String?  @map("profile_image")
+  firstName    String?  @map("first_name")
+  lastName     String?  @map("last_name")
+  role         UserRole @default(CLEANER)
+  companyId    Int?     @map("company_id")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Enhanced: Maximum working hours per week (optional, for backward compatibility)
+  maxWorkingHours Int? @map("max_working_hours") // Hours per week
+
+  // Relations
+  company          Company?              @relation(fields: [companyId], references: [id])
+  tasks            Task[]                @relation("AssignedTasks")
+  taskAssignments  TaskAssignment[]      @relation("TaskAssignments")
+  photos           Photo[]
+  notes            Note[]
+  auditLogs        AuditLog[]
+  locationLogs     LocationLog[]
+  notifications    Notification[]
+  availability     CleanerAvailability[]
+  leaveRequests    LeaveRequest[]        @relation("LeaveRequests")
+  leaveApprovals   LeaveRequest[]        @relation("LeaveApprovals")
+  qaScores         QAScore[]
+  sentMessages     ChatMessage[]         @relation("SentMessages")
+  receivedMessages ChatMessage[]         @relation("ReceivedMessages")
+  announcements    Announcement[]
+  payrollRecords   PayrollRecord[]
+  expenses         Expense[]             @relation("UserExpenses")
+  expenseApprovals Expense[]             @relation("ExpenseApprovals")
+  routes           Route[]
+  cleanerSkills    CleanerSkill[]        @relation("CleanerSkills")
+  preferences      UserPreferences?
+  deviceTokens     DeviceToken[]
+  SystemSetting    SystemSetting[]
+
+  @@index([email])
+  @@index([companyId])
+  @@map("users")
+}
+
+// Company model for multi-tenant architecture
+model Company {
+  id                 Int       @id @default(autoincrement())
+  name               String
+  subscriptionStatus String    @default("active") @map("subscription_status")
+  basePrice          Decimal   @default(55.00) @map("base_price") @db.Decimal(10, 2)
+  propertyCount      Int       @default(0) @map("property_count")
+  trialEndsAt        DateTime? @map("trial_ends_at")
+  isTrialActive      Boolean   @default(false) @map("is_trial_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  users              User[]
+  properties         Property[]
+  tasks              Task[]
+  billingRecords     BillingRecord[]
+  auditLogs          AuditLog[]
+  adminConfiguration AdminConfiguration?
+  announcements      Announcement[]
+  payrollRecords     PayrollRecord[]
+  expenses           Expense[]
+  checklistTemplates ChecklistTemplate[]
+
+  @@map("companies")
+}
+
+// Property model
+model Property {
+  id                 Int       @id @default(autoincrement())
+  companyId          Int       @map("company_id")
+  address            String
+  postcode           String?
+  latitude           Float?
+  longitude          Float?
+  propertyType       String    @map("property_type") // "block", "apartment", "hmo"
+  unitCount          Int       @default(1) @map("unit_count") // Number of units (for rented properties with multiple units)
+  pricePerUnit       Decimal   @default(1.00) @map("price_per_unit") @db.Decimal(10, 2) // Price per unit (e.g., £1 per unit)
+  totalPrice         Decimal   @default(1.00) @map("total_price") @db.Decimal(10, 2) // Calculated: unitCount * pricePerUnit
+  notes              String?   @db.Text
+  isActive           Boolean   @default(true) @map("is_active")
+  googleSheetUrl     String?   @map("google_sheet_url") @db.Text
+  googleSheetId      String?   @map("google_sheet_id")
+  googleSheetName    String?   @map("google_sheet_name")
+  sheetColumnMapping String?   @map("sheet_column_mapping") @db.Text // JSON mapping of sheet columns to task fields
+  sheetUniqueColumn  String?   @map("sheet_unique_column") // Column name that uniquely identifies rows
+  sheetLastSyncedAt  DateTime? @map("sheet_last_synced_at")
+  sheetSyncEnabled   Boolean   @default(false) @map("sheet_sync_enabled")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  company        Company                 @relation(fields: [companyId], references: [id])
+  tasks          Task[]
+  noteRecords    Note[]                  @relation("PropertyNotes")
+  requiredSkills PropertyRequiredSkill[]
+
+  @@index([companyId])
+  @@index([sheetSyncEnabled])
+  @@index([sheetLastSyncedAt])
+  @@map("properties")
+}
+
+// Task model for cleaning jobs
+model Task {
+  id                       Int        @id @default(autoincrement())
+  companyId                Int        @map("company_id")
+  propertyId               Int        @map("property_id")
+  assignedUserId           Int?       @map("assigned_user_id")
+  parentTaskId             Int?       @map("parent_task_id") // For recurring task series linkage
+  title                    String
+  description              String?    @db.Text
+  status                   TaskStatus @default(DRAFT)
+  scheduledDate            DateTime?  @map("scheduled_date")
+  startedAt                DateTime?  @map("started_at")
+  completedAt              DateTime?  @map("completed_at")
+  isRecurring              Boolean    @default(false) @map("is_recurring")
+  recurringPattern         String?    @map("recurring_pattern") // "daily", "weekly", "biweekly", "monthly"
+  checklistAcknowledgedAt  DateTime?  @map("checklist_acknowledged_at") // Timestamp when checklist was acknowledged
+  estimatedDurationMinutes Int?       @map("estimated_duration_minutes") // Estimated task duration in minutes (optional, for workload calculation)
+  budget                   Decimal?   @db.Decimal(10, 2) // Budget for reporting purposes (owner/manager only)
+  createdAt                DateTime   @default(now()) @map("created_at")
+  updatedAt                DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  company         Company          @relation(fields: [companyId], references: [id])
+  property        Property         @relation(fields: [propertyId], references: [id])
+  assignedUser    User?            @relation("AssignedTasks", fields: [assignedUserId], references: [id])
+  parentTask      Task?            @relation("RecurringSeries", fields: [parentTaskId], references: [id])
+  childTasks      Task[]           @relation("RecurringSeries")
+  taskAssignments TaskAssignment[] // Multiple cleaner assignments
+  photos          Photo[]
+  notes           Note[]
+  checklists      ChecklistItem[]
+  locationLogs    LocationLog[]
+  qaScores        QAScore[]
+  shareLinks      ShareLink[]
+  chatMessages    ChatMessage[]
+  expenses        Expense[]
+  clientFeedback  ClientFeedback[]
+  pdfRecords      PDFRecord[]
+
+  @@index([companyId])
+  @@index([propertyId])
+  @@index([assignedUserId])
+  @@index([status])
+  @@index([scheduledDate])
+  @@index([parentTaskId])
+  @@map("tasks")
+}
+
+// TaskAssignment model for multiple cleaner assignments
+model TaskAssignment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int      @map("task_id")
+  userId    Int      @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_assignments")
+}
+
+// Photo evidence model
+model Photo {
+  id            Int       @id @default(autoincrement())
+  taskId        Int       @map("task_id")
+  userId        Int       @map("user_id")
+  url           String
+  caption       String?
+  photoType     String    @map("photo_type") // "before", "after"
+  takenAt       DateTime  @map("taken_at")
+  exifTimestamp DateTime? @map("exif_timestamp") // EXIF timestamp from image metadata
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([userId])
+  @@map("photos")
+}
+
+// Note/Issue model
+model Note {
+  id         Int          @id @default(autoincrement())
+  taskId     Int?         @map("task_id") // Optional - can be attached to task
+  propertyId Int?         @map("property_id") // Optional - can be attached to property
+  userId     Int          @map("user_id")
+  content    String       @db.Text
+  noteType   String       @map("note_type") // "note", "issue"
+  category   String? // Issue category: "Damage", "Access", "Missing Item", etc.
+  severity   NoteSeverity @default(LOW)
+  status     NoteStatus   @default(OPEN)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  task     Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  property Property? @relation("PropertyNotes", fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id])
+
+  @@index([taskId])
+  @@index([propertyId])
+  @@index([userId])
+  @@index([category])
+  @@index([noteType])
+  @@index([status])
+  @@map("notes")
+}
+
+// Checklist item model
+model ChecklistItem {
+  id          Int      @id @default(autoincrement())
+  taskId      Int      @map("task_id")
+  title       String
+  isCompleted Boolean  @default(false) @map("is_completed")
+  order       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  task Task @relation(fields: [taskId], references: [id])
+
+  @@index([taskId])
+  @@map("checklist_items")
+}
+
+// Billing records for Stripe integration
+model BillingRecord {
+  id                     Int       @id @default(autoincrement())
+  companyId              Int       @map("company_id")
+  stripeCustomerId       String?   @map("stripe_customer_id")
+  subscriptionId         String?   @map("subscription_id")
+  baseSubscriptionItemId String?   @map("base_subscription_item_id") // Stripe subscription item ID for base price
+  propertyUsageItemId    String?   @map("property_usage_item_id") // Stripe subscription item ID for property usage
+  status                 String    @default("active")
+  amountPaid             Decimal   @default(0) @map("amount_paid") @db.Decimal(10, 2)
+  amountDue              Decimal   @default(0) @map("amount_due") @db.Decimal(10, 2)
+  billingDate            DateTime? @map("billing_date")
+  nextBillingDate        DateTime? @map("next_billing_date")
+  propertyCount          Int       @default(0) @map("property_count")
+  trialEndsAt            DateTime? @map("trial_ends_at")
+  isTrialPeriod          Boolean   @default(false) @map("is_trial_period")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([stripeCustomerId])
+  @@map("billing_records")
+}
+
+// Audit logs
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  companyId  Int      @map("company_id")
+  userId     Int      @map("user_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  oldValues  String?  @map("old_values") @db.Text
+  newValues  String?  @map("new_values") @db.Text
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Admin configurations
+model AdminConfiguration {
+  id                    Int      @id @default(autoincrement())
+  companyId             Int      @unique @map("company_id")
+  photoCountRequirement Int      @default(20) @map("photo_count_requirement")
+  watermarkEnabled      Boolean  @default(false) @map("watermark_enabled")
+  geofenceRadius        Int      @default(150) @map("geofence_radius")
+  timezone              String   @default("UTC")
+  notificationTemplate  String?  @map("notification_template") @db.Text
+  dataRetentionDays     Int      @default(365) @map("data_retention_days")
+  // Pricing Configuration
+  currency              String   @default("GBP") // Currency code (GBP, USD, EUR, etc.)
+  subscriptionBasePrice Decimal  @default(55.00) @map("subscription_base_price") @db.Decimal(10, 2) // Base subscription price
+  propertyPricePerUnit  Decimal  @default(1.00) @map("property_price_per_unit") @db.Decimal(10, 2) // Default price per property unit
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("admin_configurations")
+}
+
+// Location logs
+model LocationLog {
+  id                   Int      @id @default(autoincrement())
+  taskId               Int      @map("task_id")
+  userId               Int      @map("user_id")
+  latitude             Decimal  @db.Decimal(10, 8)
+  longitude            Decimal  @db.Decimal(11, 8)
+  distanceFromProperty Decimal? @map("distance_from_property") @db.Decimal(10, 2)
+  withinGeofence       Boolean  @default(false) @map("within_geofence")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([userId])
+  @@map("location_logs")
+}
+
+// Notifications
+model Notification {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  title     String
+  message   String    @db.Text
+  type      String
+  status    String    @default("unread")
+  metadata  String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  readAt    DateTime? @map("read_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("notifications")
+}
+
+// OTP storage for authentication
+model OTP {
+  id         Int       @id @default(autoincrement())
+  identifier String // email or phoneNumber
+  otp        String // 6-digit code
+  expiresAt  DateTime  @map("expires_at")
+  isUsed     Boolean   @default(false) @map("is_used")
+  attempts   Int       @default(0) // Track verification attempts
+  createdAt  DateTime  @default(now()) @map("created_at")
+  usedAt     DateTime? @map("used_at")
+
+  @@index([identifier])
+  @@index([expiresAt])
+  @@index([isUsed])
+  @@map("otps")
+}
+
+// User Preferences
+model UserPreferences {
+  id                 Int      @id @default(autoincrement())
+  userId             Int      @unique @map("user_id")
+  pushNotifications  Boolean  @default(true) @map("push_notifications")
+  emailNotifications Boolean  @default(true) @map("email_notifications")
+  soundEnabled       Boolean  @default(true) @map("sound_enabled")
+  vibrationEnabled   Boolean  @default(true) @map("vibration_enabled")
+  darkMode           Boolean  @default(false) @map("dark_mode")
+  autoSync           Boolean  @default(true) @map("auto_sync")
+  locationTracking   Boolean  @default(true) @map("location_tracking")
+  biometricAuth      Boolean  @default(false) @map("biometric_auth")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_preferences")
+}
+
+// Device Tokens for Push Notifications
+model DeviceToken {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  expoPushToken String   @map("expo_push_token")
+  deviceId      String?  @map("device_id") // Optional device identifier
+  platform      String? // 'ios', 'android', 'web'
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, expoPushToken])
+  @@index([userId])
+  @@index([expoPushToken])
+  @@index([isActive])
+  @@map("device_tokens")
+}
+
+// Enums
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN_UNIQUE
+  OWNER
+  DEVELOPER
+  COMPANY_ADMIN
+  MANAGER
+  CLEANER
+}
+
+enum TaskStatus {
+  DRAFT
+  PLANNED
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  QA_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+enum NoteSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum NoteStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum IssueCategory {
+  DAMAGE
+  ACCESS
+  MISSING_ITEM
+  CLEANING_SUPPLY
+  OTHER
+}
+
+// Phase 2: Cleaner availability and leave tracking
+model CleanerAvailability {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  dayOfWeek   Int      @map("day_of_week") // 0-6 (Sunday-Saturday)
+  startTime   String   @map("start_time") // HH:MM format
+  endTime     String   @map("end_time")
+  isAvailable Boolean  @default(true) @map("is_available")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("cleaner_availability")
+}
+
+model LeaveRequest {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  startDate  DateTime @map("start_date")
+  endDate    DateTime @map("end_date")
+  reason     String?  @db.Text
+  status     String   @default("pending") // pending, approved, rejected
+  approvedBy Int?     @map("approved_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user     User  @relation("LeaveRequests", fields: [userId], references: [id], onDelete: Cascade)
+  approver User? @relation("LeaveApprovals", fields: [approvedBy], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("leave_requests")
+}
+
+// Phase 2: QA Scoring
+model QAScore {
+  id                   Int      @id @default(autoincrement())
+  taskId               Int      @map("task_id")
+  reviewerId           Int      @map("reviewer_id")
+  overallScore         Int      @map("overall_score") // 1-10
+  cleanlinessScore     Int      @map("cleanliness_score")
+  timelinessScore      Int      @map("timeliness_score")
+  professionalismScore Int      @map("professionalism_score")
+  comments             String?  @db.Text
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  task     Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reviewer User @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([reviewerId])
+  @@map("qa_scores")
+}
+
+// Phase 2: Client share links
+model ShareLink {
+  id        Int       @id @default(autoincrement())
+  taskId    Int       @map("task_id")
+  token     String    @unique
+  expiresAt DateTime? @map("expires_at")
+  viewCount Int       @default(0) @map("view_count")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([token])
+  @@map("share_links")
+}
+
+// PDF records with checksum for immutable storage
+model PDFRecord {
+  id          Int      @id @default(autoincrement())
+  taskId      Int      @map("task_id")
+  url         String
+  checksum    String   @unique // SHA-256 checksum for immutable verification
+  fileSize    Int      @map("file_size") // bytes
+  generatedAt DateTime @map("generated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([checksum])
+  @@map("pdf_records")
+}
+
+// Phase 2: In-app chat
+model ChatMessage {
+  id         Int      @id @default(autoincrement())
+  taskId     Int?     @map("task_id")
+  senderId   Int      @map("sender_id")
+  receiverId Int      @map("receiver_id")
+  message    String   @db.Text
+  isRead     Boolean  @default(false) @map("is_read")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  task     Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  sender   User  @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User  @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("chat_messages")
+}
+
+// Phase 2: Broadcast announcements
+model Announcement {
+  id         Int      @id @default(autoincrement())
+  companyId  Int      @map("company_id")
+  title      String
+  message    String   @db.Text
+  targetRole String?  @map("target_role") // null = all, or specific role
+  createdBy  Int      @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator User    @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("announcements")
+}
+
+// Phase 2: Payroll
+model PayrollRecord {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  companyId   Int       @map("company_id")
+  periodStart DateTime  @map("period_start")
+  periodEnd   DateTime  @map("period_end")
+  payrollType String    @default("hourly") @map("payroll_type") // "hourly" or "fixed"
+  hoursWorked Decimal?  @map("hours_worked") @db.Decimal(10, 2) // Nullable for fixed salary
+  hourlyRate  Decimal?  @map("hourly_rate") @db.Decimal(10, 2) // Nullable for fixed salary
+  fixedSalary Decimal?  @map("fixed_salary") @db.Decimal(10, 2) // For fixed salary employees
+  totalAmount Decimal   @map("total_amount") @db.Decimal(10, 2)
+  status      String    @default("pending") // pending, approved, paid
+  paidAt      DateTime? @map("paid_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([status])
+  @@index([periodStart, periodEnd])
+  @@map("payroll_records")
+}
+
+// Phase 2: Expense tracking
+model Expense {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  companyId   Int      @map("company_id")
+  taskId      Int?     @map("task_id")
+  category    String
+  amount      Decimal  @db.Decimal(10, 2)
+  description String   @db.Text
+  receiptUrl  String?  @map("receipt_url")
+  status      String   @default("pending") // pending, approved, rejected
+  approvedBy  Int?     @map("approved_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user     User    @relation("UserExpenses", fields: [userId], references: [id], onDelete: Cascade)
+  company  Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  task     Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  approver User?   @relation("ExpenseApprovals", fields: [approvedBy], references: [id])
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([status])
+  @@map("expenses")
+}
+
+// Phase 2: Route optimization
+model Route {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  date           DateTime
+  taskIds        String   @map("task_ids") @db.Text // JSON array of task IDs
+  optimizedOrder String   @map("optimized_order") @db.Text // JSON array
+  totalDistance  Decimal  @map("total_distance") @db.Decimal(10, 2)
+  totalDuration  Int      @map("total_duration") // minutes
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([date])
+  @@map("routes")
+}
+
+// Phase 2: Checklist templates
+model ChecklistTemplate {
+  id          Int      @id @default(autoincrement())
+  companyId   Int      @map("company_id")
+  name        String
+  description String?  @db.Text
+  items       String   @db.Text // JSON array of checklist items
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@map("checklist_templates")
+}
+
+// Phase 2: Client feedback
+model ClientFeedback {
+  id          Int      @id @default(autoincrement())
+  taskId      Int      @map("task_id")
+  rating      Int // 1-5 stars
+  comment     String?  @db.Text
+  clientName  String?  @map("client_name")
+  clientEmail String?  @map("client_email")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([rating])
+  @@map("client_feedback")
+}
+
+// Enhanced Rota Builder: Skills System
+// Skills catalog - reusable across all companies
+model Skill {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?  @db.Text
+  category    String? // e.g., "Cleaning", "Maintenance", "Specialized"
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  cleanerSkills  CleanerSkill[]
+  propertySkills PropertyRequiredSkill[]
+
+  @@map("skills")
+}
+
+// Many-to-many: Cleaners have skills
+model CleanerSkill {
+  id               Int      @id @default(autoincrement())
+  userId           Int      @map("user_id")
+  skillId          Int      @map("skill_id")
+  proficiencyLevel String?  @map("proficiency_level") // e.g., "beginner", "intermediate", "expert" (optional)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  user  User  @relation("CleanerSkills", fields: [userId], references: [id], onDelete: Cascade)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skillId])
+  @@index([userId])
+  @@index([skillId])
+  @@map("cleaner_skills")
+}
+
+// Many-to-many: Properties require specific skills
+model PropertyRequiredSkill {
+  id         Int      @id @default(autoincrement())
+  propertyId Int      @map("property_id")
+  skillId    Int      @map("skill_id")
+  isRequired Boolean  @default(true) @map("is_required") // false = preferred but not required
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  skill    Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, skillId])
+  @@index([propertyId])
+  @@index([skillId])
+  @@map("property_required_skills")
+}
+
+// System Settings model for admin configuration
+model SystemSetting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String   @db.Text
+  category    String // "stripe", "billing", "email", "google_maps", "app", "general"
+  description String?  @db.Text
+  isEncrypted Boolean  @default(false) @map("is_encrypted") // For sensitive data like API keys
+  updatedBy   Int?     @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedByUser User? @relation(fields: [updatedBy], references: [id])
+
+  @@index([category])
+  @@index([key])
+  @@map("system_settings")
+}

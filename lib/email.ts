@@ -1,7 +1,9 @@
-// Email service using SMTP, AWS SES, or SendGrid
+// Email service using SMTP, AWS SES, Brevo, or SendGrid
 // SMTP support via nodemailer
+// Brevo support via REST API (fetch)
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+
 
 interface EmailOptions {
   to: string;
@@ -28,6 +30,8 @@ async function getEmailSettings() {
             'ses_secret_key', 
             'ses_region', 
             'sendgrid_api_key',
+            'brevo_api_key',
+            'brevo_sender_name',
             'from_email'
           ],
         },
@@ -72,6 +76,9 @@ async function getEmailSettings() {
       sesRegion: settingsMap['ses_region'] || process.env.AWS_SES_REGION,
       // SendGrid settings (for backward compatibility)
       sendgridApiKey: settingsMap['sendgrid_api_key'] || process.env.SENDGRID_API_KEY,
+      // Brevo settings
+      brevoApiKey: settingsMap['brevo_api_key'] || process.env.BREVO_API_KEY,
+      brevoSenderName: settingsMap['brevo_sender_name'] || process.env.BREVO_SENDER_NAME || 'MayaOps',
       // From email
       fromEmail: settingsMap['from_email'] || process.env.EMAIL_FROM || 'noreply@mayaops.com',
     };
@@ -89,6 +96,8 @@ async function getEmailSettings() {
       sesSecretKey: process.env.AWS_SES_SECRET_KEY,
       sesRegion: process.env.AWS_SES_REGION,
       sendgridApiKey: process.env.SENDGRID_API_KEY,
+      brevoApiKey: process.env.BREVO_API_KEY,
+      brevoSenderName: process.env.BREVO_SENDER_NAME || 'MayaOps',
       fromEmail: process.env.EMAIL_FROM || 'noreply@mayaops.com',
     };
   }
@@ -163,7 +172,57 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
       return true;
     }
 
-    // Option 3: SendGrid (for backward compatibility)
+    // Option 3: Brevo (Transactional Emails API via REST)
+    if (emailSettings.provider === 'brevo' && emailSettings.brevoApiKey) {
+      // Use Brevo REST API directly via fetch
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': emailSettings.brevoApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: {
+            name: emailSettings.brevoSenderName,
+            email: fromEmail,
+          },
+          to: [
+            {
+              email: options.to,
+            },
+          ],
+          subject: options.subject,
+          htmlContent: options.html,
+        }),
+      });
+      console.log('🔑 Brevo Response:', response.body);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        
+        // Provide helpful error messages for common issues
+        if (response.status === 401) {
+          const errorMessage = errorData.message || 'Unauthorized';
+          if (errorMessage.includes('unrecognised IP address') || errorMessage.includes('authorised_ips')) {
+            console.error('❌ Brevo API Error: IP address not authorized');
+            console.error('📝 Action required: Please whitelist your server IP address in Brevo:');
+            console.error('   https://app.brevo.com/security/authorised_ips');
+            console.error(`   Detected IP: ${errorMessage.match(/\d+\.\d+\.\d+\.\d+/)?.[0] || 'unknown'}`);
+            throw new Error(`Brevo API: IP address not authorized. Please add your server IP to authorized IPs in Brevo settings: https://app.brevo.com/security/authorised_ips`);
+          } else {
+            throw new Error(`Brevo API: Unauthorized - ${errorMessage}. Please check your API key.`);
+          }
+        }
+        
+        throw new Error(`Brevo API error: ${response.status} - ${errorData.message || JSON.stringify(errorData)}`);
+      }
+
+      const result = await response.json();
+      console.log(`✅ Email sent via Brevo to ${options.to} (Message ID: ${result.messageId || 'N/A'})`);
+      return true;
+    }
+
+    // Option 4: SendGrid (for backward compatibility)
     if (emailSettings.provider === 'sendgrid' && emailSettings.sendgridApiKey) {
       const sgMail = require('@sendgrid/mail');
       sgMail.setApiKey(emailSettings.sendgridApiKey);

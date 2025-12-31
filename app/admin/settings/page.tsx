@@ -43,7 +43,7 @@ interface Setting {
 const CATEGORIES = [
   { value: 'stripe', label: 'Stripe Integration', icon: CreditCard, description: 'Manage payments and webhook keys' },
   { value: 'billing', label: 'Billing Configuration', icon: Receipt, description: 'Pricing models and trial periods' },
-  { value: 'email', label: 'Email Services', icon: Mail, description: 'SMTP, AWS SES, and SendGrid settings' },
+  { value: 'email', label: 'Email Services', icon: Mail, description: 'SMTP, AWS SES, Brevo, and SendGrid settings' },
   { value: 'google_maps', label: 'Google Maps', icon: MapIcon, description: 'API keys for map rendering' },
   { value: 'app', label: 'Application', icon: Smartphone, description: 'Version control and maintenance' },
   { value: 'general', label: 'General', icon: SettingsIcon, description: 'Global system preferences' },
@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS = {
     { key: 'trial_days', description: 'Trial Period (Days)', isEncrypted: false },
   ],
   email: [
-    { key: 'email_provider', description: 'Email Provider (smtp|ses|sendgrid)', isEncrypted: false },
+    { key: 'email_provider', description: 'Email Provider (smtp|ses|brevo|sendgrid)', isEncrypted: false },
     { key: 'smtp_host', description: 'SMTP Host (e.g., smtp.gmail.com)', isEncrypted: false },
     { key: 'smtp_port', description: 'SMTP Port (587 for TLS, 465 for SSL)', isEncrypted: false },
     { key: 'smtp_secure', description: 'SMTP Secure (true for SSL, false for TLS)', isEncrypted: false },
@@ -72,6 +72,8 @@ const DEFAULT_SETTINGS = {
     { key: 'ses_access_key', description: 'AWS SES Access Key', isEncrypted: true },
     { key: 'ses_secret_key', description: 'AWS SES Secret Key', isEncrypted: true },
     { key: 'ses_region', description: 'AWS SES Region', isEncrypted: false },
+    { key: 'brevo_api_key', description: 'Brevo API Key (v3)', isEncrypted: true },
+    { key: 'brevo_sender_name', description: 'Brevo Sender Name', isEncrypted: false },
     { key: 'sendgrid_api_key', description: 'SendGrid API Key (legacy)', isEncrypted: true },
     { key: 'from_email', description: 'System From Email', isEncrypted: false },
   ],

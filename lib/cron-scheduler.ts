@@ -15,7 +15,7 @@ export function initCronScheduler() {
   // ----------------------------
   cron.schedule('*/10 * * * * *', async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cron/task-reminders`, {
+      const res = await fetch(`http://127.0.0.1:3000/api/cron/task-reminders`, {
         headers: { Authorization: `Bearer ${CRON_SECRET}` },
       });
       const data = await res.json();
@@ -30,7 +30,7 @@ export function initCronScheduler() {
   // ----------------------------
   cron.schedule('0 * * * * *', async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cron/sheets-sync`, {
+      const res = await fetch(`http://127.0.0.1:3000/api/cron/sheets-sync`, {
         headers: { Authorization: `Bearer ${CRON_SECRET}` },
       });
       const data = await res.json();
@@ -45,7 +45,7 @@ export function initCronScheduler() {
   // ----------------------------
   cron.schedule('0 */6 * * * *', async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cron/sync-property-sheets`, {
+      const res = await fetch(`http://127.0.0.1:3000/api/cron/sync-property-sheets`, {
         headers: { Authorization: `Bearer ${CRON_SECRET}` },
       });
       const data = await res.json();
@@ -60,7 +60,7 @@ export function initCronScheduler() {
   // ----------------------------
   cron.schedule('0 0 0 * * *', async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/cron/expire-device-tokens`, {
+      const res = await fetch(`http://127.0.0.1:3000/api/cron/expire-device-tokens`, {
         headers: { Authorization: `Bearer ${CRON_SECRET}` },
       });
       const data = await res.json();

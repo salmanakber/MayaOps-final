@@ -100,9 +100,9 @@ export async function POST(request: NextRequest) {
 
     // Determine target company scope
     let targetCompanyId: number | null = null;
-    const allowedRoles: UserRole[] = ['OWNER', 'DEVELOPER', 'SUPER_ADMIN', 'ADMIN_UNIQUE', 'MANAGER'];
-    if (allowedRoles.includes(requesterRole)) {
-
+    const allowedGlobalRoles: UserRole[] = [UserRole.OWNER, UserRole.DEVELOPER, UserRole.SUPER_ADMIN, UserRole.ADMIN_UNIQUE];
+    if (allowedGlobalRoles.includes(requesterRole)) {
+      // Global roles can specify any companyId or create users without one
       targetCompanyId = bodyCompanyId ?? null;
     } else {
       const scopeCompanyId = requireCompanyScope(tokenUser);

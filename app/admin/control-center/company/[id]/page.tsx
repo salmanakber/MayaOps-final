@@ -470,6 +470,12 @@ function EditCompanyModal({
         ).toString()
       : "14",
   })
+  const [assignUserEmail, setAssignUserEmail] = useState("")
+  const [assignUserRole, setAssignUserRole] = useState("CLEANER")
+  const [assignUserLoading, setAssignUserLoading] = useState(false)
+  const [assignUserError, setAssignUserError] = useState("")
+  const [users, setUsers] = useState<Array<{ id: number; email: string; firstName?: string; lastName?: string; companyId?: number }>>([])
+  const [searchLoading, setSearchLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -505,6 +511,85 @@ function EditCompanyModal({
       setError(error.response?.data?.error || error.message || "Failed to update company")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleSearchUser = async () => {
+    if (!assignUserEmail) return
+
+    setSearchLoading(true)
+    setAssignUserError("")
+    setUsers([])
+
+    try {
+      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      // Search users by email - get all users and filter by email
+      const response = await axios.get("/api/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.data.success) {
+        const allUsers = response.data.data || []
+        const matchingUsers = allUsers.filter((u: any) => 
+          u.email.toLowerCase().includes(assignUserEmail.toLowerCase())
+        )
+        setUsers(matchingUsers.slice(0, 10)) // Limit to 10 results
+        if (matchingUsers.length === 0) {
+          setAssignUserError("No users found with that email")
+        }
+      }
+    } catch (error: any) {
+      setAssignUserError(error.response?.data?.message || "Failed to search users")
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const handleAssignUser = async () => {
+    if (!assignUserEmail) return
+
+    const selectedUser = users.find(u => u.email.toLowerCase() === assignUserEmail.toLowerCase())
+    if (!selectedUser) {
+      setAssignUserError("Please select a user from the search results")
+      return
+    }
+
+    if (selectedUser.companyId && selectedUser.companyId !== company.id) {
+      setAssignUserError(`User already belongs to another company (Company ID: ${selectedUser.companyId})`)
+      return
+    }
+
+    setAssignUserLoading(true)
+    setAssignUserError("")
+
+    try {
+      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      const response = await axios.patch(
+        `/api/admin/companies/${company.id}`,
+        {
+          assignUser: {
+            userId: selectedUser.id,
+            role: assignUserRole,
+          }
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+
+      if (response.data.success) {
+        setAssignUserEmail("")
+        setUsers([])
+        setAssignUserRole("CLEANER")
+        // Reload company data
+        onClose()
+      } else {
+        setAssignUserError(response.data.error || "Failed to assign user")
+      }
+    } catch (error: any) {
+      setAssignUserError(error.response?.data?.error || error.message || "Failed to assign user")
+    } finally {
+      setAssignUserLoading(false)
     }
   }
 
@@ -572,6 +657,85 @@ function EditCompanyModal({
               />
             </div>
           )}
+
+          {/* User Assignment Section */}
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Assign User to Company</h3>
+            {assignUserError && (
+              <div className="mb-4 p-3 bg-red-50 text-red-800 rounded-lg text-sm">{assignUserError}</div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search User by Email</label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={assignUserEmail}
+                    onChange={(e) => setAssignUserEmail(e.target.value)}
+                    placeholder="user@example.com"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSearchUser}
+                    disabled={!assignUserEmail || searchLoading}
+                    className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    {searchLoading ? "Searching..." : "Search"}
+                  </button>
+                </div>
+              </div>
+
+              {users.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select User</label>
+                  <select
+                    value={assignUserEmail}
+                    onChange={(e) => {
+                      const selectedUser = users.find(u => u.email === e.target.value)
+                      if (selectedUser) {
+                        setAssignUserEmail(selectedUser.email)
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="">Select a user</option>
+                    {users.map((user) => (
+                      <option key={user.id} value={user.email}>
+                        {user.firstName && user.lastName 
+                          ? `${user.firstName} ${user.lastName} (${user.email})` 
+                          : user.email}
+                        {user.companyId ? ` - Already in company ${user.companyId}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Assign Role</label>
+                <select
+                  value={assignUserRole}
+                  onChange={(e) => setAssignUserRole(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="OWNER">Owner</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="CLEANER">Cleaner</option>
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAssignUser}
+                disabled={!assignUserEmail || assignUserLoading}
+                className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {assignUserLoading ? "Assigning..." : "Assign User to Company"}
+              </button>
+            </div>
+          </div>
+
           <div className="flex gap-3">
             <button
               type="button"

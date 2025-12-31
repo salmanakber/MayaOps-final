@@ -102,7 +102,16 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
     // Option 1: SMTP (Custom SMTP Server)
     if (emailSettings.provider === 'smtp' && emailSettings.smtpHost && emailSettings.smtpUsername && emailSettings.smtpPassword) {
       
-      
+      console.log('🔑 SMTP Settings:', {
+        host: emailSettings.smtpHost,
+        port: emailSettings.smtpPort,
+        secure: emailSettings.smtpSecure,
+        username: emailSettings.smtpUsername,
+        password: emailSettings.smtpPassword,
+        fromEmail: fromEmail,
+        provider: emailSettings.provider,
+      });
+
       const transporter = nodemailer.createTransport({
         host: emailSettings.smtpHost,
         port: emailSettings.smtpPort || 587,

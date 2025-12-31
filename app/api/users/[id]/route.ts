@@ -122,13 +122,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
 
     if (newCompanyId !== undefined) {
-      if (!(requesterRole === UserRole.OWNER || requesterRole === UserRole.DEVELOPER || requesterRole === UserRole.SUPER_ADMIN)) {
+      if (!(requesterRole === UserRole.OWNER || requesterRole === UserRole.DEVELOPER || requesterRole === UserRole.SUPER_ADMIN || requesterRole === UserRole.ADMIN_UNIQUE)) {
         return NextResponse.json({ success: false, message: 'Only global roles can reassign company' }, { status: 403 });
       }
-      // Validate company exists
-      const company = await prisma.company.findUnique({ where: { id: Number(newCompanyId) } });
-      if (!company) return NextResponse.json({ success: false, message: 'Target company not found' }, { status: 404 });
-      data.companyId = Number(newCompanyId);
+      
+      // Handle null/empty string - unassign from company
+      if (newCompanyId === null || newCompanyId === "" || newCompanyId === undefined) {
+        data.companyId = null;
+      } else {
+        // Validate company exists
+        const company = await prisma.company.findUnique({ where: { id: Number(newCompanyId) } });
+        if (!company) return NextResponse.json({ success: false, message: 'Target company not found' }, { status: 404 });
+        data.companyId = Number(newCompanyId);
+      }
     }
 
     const updated = await prisma.user.update({

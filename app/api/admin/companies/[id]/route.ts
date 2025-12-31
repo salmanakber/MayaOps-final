@@ -144,8 +144,55 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { name, basePrice, subscriptionStatus, isTrialActive, trialEndsAt } = body
+    const { name, basePrice, subscriptionStatus, isTrialActive, trialEndsAt, assignUser } = body
 
+    // Handle user assignment if provided
+    if (assignUser) {
+      const { userId, role: userRole } = assignUser
+      
+      if (!userId || !userRole) {
+        return NextResponse.json({ success: false, error: "User ID and role are required for assignment" }, { status: 400 })
+      }
+
+      // Validate user exists
+      const user = await prisma.user.findUnique({
+        where: { id: parseInt(userId) },
+        select: { id: true, companyId: true, email: true },
+      })
+
+      if (!user) {
+        return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
+      }
+
+      // Check if user already belongs to another company
+      if (user.companyId && user.companyId !== companyId) {
+        return NextResponse.json({ 
+          success: false, 
+          error: `User already belongs to another company (Company ID: ${user.companyId})` 
+        }, { status: 400 })
+      }
+
+      // Validate role
+      if (!['OWNER', 'CLEANER', 'MANAGER'].includes(userRole.toUpperCase())) {
+        return NextResponse.json({ success: false, error: "Invalid role. Allowed roles: OWNER, CLEANER, MANAGER" }, { status: 400 })
+      }
+
+      // Assign user to company with role
+      await prisma.user.update({
+        where: { id: parseInt(userId) },
+        data: { 
+          companyId: companyId,
+          role: userRole.toUpperCase() as UserRole,
+        },
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: "User assigned to company successfully",
+      })
+    }
+
+    // Regular company update
     const updateData: any = {}
     if (name !== undefined) updateData.name = name
     if (basePrice !== undefined) updateData.basePrice = basePrice

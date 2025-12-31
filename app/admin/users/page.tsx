@@ -446,7 +446,7 @@ function UserFormModal({ user, onClose, onSuccess }: UserFormModalProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                 <select
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
                 >
                   {Object.keys(ROLE_COLORS).map((role) => (

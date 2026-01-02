@@ -38,8 +38,7 @@ export async function GET(request: NextRequest) {
     if (from) where.scheduledDate.gte = new Date(from);
     if (to) where.scheduledDate.lte = new Date(to);
   }
-  console.log('companyIdParam 121', companyIdParam);
-  console.log('role 121', role);
+  
 
   try {
     if (role === UserRole.OWNER || role === UserRole.MANAGER || role === UserRole.SUPER_ADMIN || role === UserRole.CLEANER) {
@@ -49,6 +48,13 @@ export async function GET(request: NextRequest) {
       }
       else {
         where.companyId = tokenUser.companyId;
+      }
+      
+      if(role === UserRole.CLEANER) {
+        where.OR = [
+          { assignedUserId: tokenUser.userId },
+          { taskAssignments: { some: { userId: tokenUser.userId } } },
+        ];
       }
       
       // global view
@@ -119,7 +125,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, data: { tasks } });
+    return NextResponse.json({ success: true, data: { tasks }, downloadUrl: `${process.env.NEXT_PUBLIC_API_URL}/api/pdf/download` });
   } catch (error) {
     console.error('Tasks GET error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

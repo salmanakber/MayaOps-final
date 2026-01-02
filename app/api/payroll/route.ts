@@ -64,6 +64,7 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { periodEnd: 'desc' },
     });
+    
 
     return NextResponse.json({ success: true, data: payrollRecords });
   } catch (error) {

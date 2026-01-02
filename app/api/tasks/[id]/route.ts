@@ -80,6 +80,15 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
           },
           orderBy: { order: 'asc' },
         },
+        pdfRecords: {
+          select: {
+            id: true,
+            url: true,
+            generatedAt: true,
+          },
+          orderBy: { generatedAt: 'desc' },
+          take: 1, // Get most recent PDF
+        },
       },
     });
     if (!task) return NextResponse.json({ success: false, message: 'Task not found' }, { status: 404 });
@@ -99,7 +108,16 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
-    return NextResponse.json({ success: true, data: { task } });
+    // Include download URL for PDF downloads
+    const downloadUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/pdf/download/${task.id}`;
+    
+    return NextResponse.json({ 
+      success: true, 
+      data: { 
+        task,
+        downloadUrl, // Include download URL in response
+      } 
+    });
   } catch (error) {
     console.error('Task GET error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
@@ -253,6 +271,15 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
             order: true,
           },
           orderBy: { order: 'asc' },
+        },
+        pdfRecords: {
+          select: {
+            id: true,
+            url: true,
+            generatedAt: true,
+          },
+          orderBy: { generatedAt: 'desc' },
+          take: 1, // Get most recent PDF
         },
       },
     });

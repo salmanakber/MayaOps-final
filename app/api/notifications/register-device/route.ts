@@ -19,6 +19,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'expoPushToken is required' }, { status: 400 });
     }
 
+    console.log('expoPushToken', expoPushToken);
+    console.log('deviceId', deviceId);
+    console.log('platform', platform);
+    console.log('userId', userId);
+
     // Validate Expo push token format
     const { Expo } = require('expo-server-sdk');
     if (!Expo.isExpoPushToken(expoPushToken)) {

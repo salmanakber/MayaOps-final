@@ -44,6 +44,7 @@
     "postcss": "^8.4.32",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-native-file-viewer": "^2.1.5",
     "recharts": "^3.6.0",
     "redis": "^4.6.11",
     "sib-api-v3-sdk": "^8.5.0",

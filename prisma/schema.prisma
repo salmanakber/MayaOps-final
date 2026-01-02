@@ -51,6 +51,9 @@ model User {
   preferences      UserPreferences?
   deviceTokens     DeviceToken[]
   SystemSetting    SystemSetting[]
+  workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
+  workingHoursApprovals   WorkingHoursSubmission[] @relation("WorkingHoursApprovals")
+
 
   @@index([email])
   @@index([companyId])
@@ -80,6 +83,8 @@ model Company {
   payrollRecords     PayrollRecord[]
   expenses           Expense[]
   checklistTemplates ChecklistTemplate[]
+    workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
+
 
   @@map("companies")
 }
@@ -158,7 +163,7 @@ model Task {
   expenses        Expense[]
   clientFeedback  ClientFeedback[]
   pdfRecords      PDFRecord[]
-
+  workingHoursSubmissions WorkingHoursSubmissionTask[] // Working hours submissions that reference this task // Working hours submissions that reference this task
   @@index([companyId])
   @@index([propertyId])
   @@index([assignedUserId])
@@ -265,6 +270,7 @@ model BillingRecord {
   propertyCount          Int       @default(0) @map("property_count")
   trialEndsAt            DateTime? @map("trial_ends_at")
   isTrialPeriod          Boolean   @default(false) @map("is_trial_period")
+  invoiceUrl             String?   @map("invoice_url") // URL to generated invoice PDF
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
@@ -437,6 +443,7 @@ enum TaskStatus {
   APPROVED
   REJECTED
   ARCHIVED
+  COMPLETED
 }
 
 enum NoteSeverity {
@@ -585,6 +592,49 @@ model Announcement {
   @@map("announcements")
 }
 
+// Working Hours Submission - Allows cleaners to submit their working hours
+model WorkingHoursSubmission {
+  id          Int       @id @default(autoincrement())
+  userId      Int       @map("user_id")
+  companyId   Int       @map("company_id")
+  date        DateTime  // Date for which hours are submitted
+  hours       Decimal   @db.Decimal(10, 2) // Hours worked on this date
+  description String?   @db.Text // Optional description/notes
+  status      String    @default("pending") @map("status") // pending, approved, rejected
+  approvedBy  Int?      @map("approved_by")
+  approvedAt  DateTime? @map("approved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user    User    @relation("WorkingHoursSubmissions", fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation("WorkingHoursSubmissions", fields: [companyId], references: [id], onDelete: Cascade)
+  approver User?  @relation("WorkingHoursApprovals", fields: [approvedBy], references: [id])
+  tasks   WorkingHoursSubmissionTask[]
+  @@unique([userId, date]) // One submission per user per date
+  @@index([userId])
+  @@index([companyId])
+  @@index([date])
+  @@index([status])
+  @@map("working_hours_submissions")
+}
+
+// Junction table for WorkingHoursSubmission and Task
+model WorkingHoursSubmissionTask {
+  id                      Int       @id @default(autoincrement())
+  workingHoursSubmissionId Int      @map("working_hours_submission_id")
+  taskId                  Int       @map("task_id")
+  hours                   Decimal?  @db.Decimal(10, 2) // Hours allocated to this specific task (optional)
+  createdAt               DateTime  @default(now()) @map("created_at")
+
+  workingHoursSubmission WorkingHoursSubmission @relation(fields: [workingHoursSubmissionId], references: [id], onDelete: Cascade)
+  task                    Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([workingHoursSubmissionId, taskId]) // One task per submission (but multiple tasks per submission)
+  @@index([workingHoursSubmissionId])
+  @@index([taskId])
+  @@map("working_hours_submission_tasks")
+}
+
 // Phase 2: Payroll
 model PayrollRecord {
   id          Int       @id @default(autoincrement())
@@ -599,7 +649,9 @@ model PayrollRecord {
   totalAmount Decimal   @map("total_amount") @db.Decimal(10, 2)
   status      String    @default("pending") // pending, approved, paid
   paidAt      DateTime? @map("paid_at")
+  invoiceUrl  String?   @map("invoice_url") // URL to generated invoice PDF
   createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -757,3 +809,4 @@ model SystemSetting {
   @@index([key])
   @@map("system_settings")
 }
+

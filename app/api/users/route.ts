@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     
  
 
-    if (role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN) {
+    if (role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN || role === UserRole.CLEANER || role === UserRole.MANAGER || role === UserRole.COMPANY_ADMIN) {
       // Allow companyId from query param for SUPER_ADMIN to view different companies
       const where: any = {};
       if (companyIdParam) {
@@ -27,7 +27,9 @@ export async function GET(request: NextRequest) {
       else {
         where.companyId = tokenUser.companyId;
       }
-      
+
+
+
       
       const users = await prisma.user.findMany({
         where,
@@ -46,13 +48,43 @@ export async function GET(request: NextRequest) {
               id: true,
               name: true,
             },
+              
+          },
+          leaveRequests: {
+            select: {
+              id: true,
+              startDate: true,
+              endDate: true,
+              reason: true,
+              status: true,
+              approvedBy: true,
+              createdAt: true,
+            },
+          },
+          availability: {
+            select: {
+              id: true,
+              dayOfWeek: true,
+              startTime: true,
+              endTime: true,
+              isAvailable: true,
+            },
           },
         },
         orderBy: { id: 'asc' },
       });
-
       
-      return NextResponse.json({ success: true, data: users });
+      const cleanersWithLeaveAvailability = users.map((user: any) => ({
+        ...user,
+        leaveRequests: user.leaveRequests.map(leave => ({
+          ...leave,
+          isAvailable: new Date(leave.endDate) < new Date(), // true if leave ended
+        })),
+      }));
+      
+      const cleaners = cleanersWithLeaveAvailability.filter((user: any) => user.role === UserRole.CLEANER);
+  
+      return NextResponse.json({ success: true, data: users, cleaners: cleaners });
     }
 
     const companyId = requireCompanyScope(tokenUser);
@@ -100,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     // Determine target company scope
     let targetCompanyId: number | null = null;
-    const allowedGlobalRoles: UserRole[] = [UserRole.OWNER, UserRole.DEVELOPER, UserRole.SUPER_ADMIN, UserRole.ADMIN_UNIQUE];
+    const allowedGlobalRoles: UserRole[] = [UserRole.OWNER, UserRole.DEVELOPER, UserRole.SUPER_ADMIN, UserRole.ADMIN_UNIQUE , UserRole.MANAGER, UserRole.CLEANER];
     if (allowedGlobalRoles.includes(requesterRole)) {
       // Global roles can specify any companyId or create users without one
       targetCompanyId = bodyCompanyId ?? null;
@@ -110,12 +142,12 @@ export async function POST(request: NextRequest) {
       targetCompanyId = scopeCompanyId;
 
       // Managers cannot create admins/managers
-      if (requesterRole === UserRole.MANAGER && (newUserRole === UserRole.COMPANY_ADMIN || newUserRole === UserRole.MANAGER || newUserRole === UserRole.DEVELOPER || newUserRole === UserRole.OWNER)) {
+      if (requesterRole === UserRole.MANAGER && (newUserRole === UserRole.COMPANY_ADMIN || newUserRole === UserRole.MANAGER || newUserRole === UserRole.DEVELOPER || newUserRole === UserRole.OWNER || newUserRole === UserRole.CLEANER)) {
         return NextResponse.json({ success: false, message: 'Insufficient permissions to create this role' }, { status: 403 });
       }
 
       // Company Admin cannot create higher roles or global roles
-      if (requesterRole === UserRole.COMPANY_ADMIN && (newUserRole === UserRole.DEVELOPER || newUserRole === UserRole.OWNER || newUserRole === UserRole.SUPER_ADMIN)) {
+      if (requesterRole === UserRole.COMPANY_ADMIN && (newUserRole === UserRole.DEVELOPER || newUserRole === UserRole.OWNER || newUserRole === UserRole.SUPER_ADMIN || newUserRole === UserRole.CLEANER)) {
         return NextResponse.json({ success: false, message: 'Insufficient permissions to create this role' }, { status: 403 });
       }
     }

@@ -1,55 +1,78 @@
-import { type NextRequest, NextResponse } from "next/server"
-import prisma from "@/lib/prisma"
-import { requireAuth } from "@/lib/rbac"
+import { NextRequest, NextResponse } from 'next/server';
+import prisma from '@/lib/prisma';
+import { requireAuth } from '@/lib/rbac';
 
-// GET /api/pdf/download/[taskId]
-export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
-  const auth = requireAuth(request)
-  if (!auth) return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ taskId: string }> }
+) {
+  // 1️⃣ Authenticate user
+  const auth = requireAuth(request);
+  if (!auth) {
+    return new NextResponse('Unauthorized', { status: 401 });
+  }
 
   try {
-    const { taskId } = await params
+    const { taskId } = await params;
+    const taskIdNum = parseInt(taskId);
+    const { tokenUser } = auth;
 
+    if (isNaN(taskIdNum)) {
+      return new NextResponse('Invalid task ID', { status: 400 });
+    }
+
+    // 2️⃣ Fetch task and most recent PDF record
     const task = await prisma.task.findUnique({
-      where: { id: Number(taskId) },
+      where: { id: taskIdNum },
       include: {
-        property: true,
-        assignedUser: { select: { firstName: true, lastName: true } },
-        photos: {
-          select: { url: true, photoType: true, caption: true },
-        },
-        checklists: {
-          orderBy: { order: "asc" },
-          select: { title: true, isCompleted: true },
-        },
-        notes: {
-          select: { content: true, severity: true },
+        pdfRecords: {
+          orderBy: { generatedAt: 'desc' },
+          take: 1, // Get most recent PDF
         },
       },
-    })
+    });
 
     if (!task) {
-      return NextResponse.json({ success: false, message: "Task not found" }, { status: 404 })
+      return new NextResponse('Task not found', { status: 404 });
     }
 
-    // In production, generate actual PDF using jsPDF/PDFKit
-    // For now, return JSON that could be rendered on client
-    const pdfContent = {
-      type: "application/pdf",
-      taskId: task.id,
-      taskTitle: task.title,
-      property: task.property?.address,
-      date: task.scheduledDate?.toLocaleDateString(),
-      cleaner: task.assignedUser,
-      photos: task.photos,
-      checklists: task.checklists,
-      notes: task.notes,
-      generatedAt: new Date().toISOString(),
+    // Check if PDF exists
+    if (!task.pdfRecords || task.pdfRecords.length === 0 || !task.pdfRecords[0]?.url) {
+      return new NextResponse('PDF not found for this task', { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: pdfContent })
-  } catch (error) {
-    console.error("PDF download error:", error)
-    return NextResponse.json({ success: false, message: "Internal server error" }, { status: 500 })
+    const pdfUrl = task.pdfRecords[0].url.replace('.pdf', '');
+
+    // 3️⃣ Authorization: check if user has access to this task
+    const isOwnTask = task.assignedUserId === tokenUser.userId;
+    const isCompanyTask = task.companyId === tokenUser.companyId;
+    const isAuthorized =
+      isOwnTask || 
+      isCompanyTask || 
+      ['OWNER', 'MANAGER', 'COMPANY_ADMIN', 'DEVELOPER', 'SUPER_ADMIN'].includes(tokenUser.role);
+
+    if (!isAuthorized) {
+      return new NextResponse('Forbidden', { status: 403 });
+    }
+
+    // 4️⃣ Fetch PDF from Cloudinary
+    const cloudinaryRes = await fetch(pdfUrl);
+    if (!cloudinaryRes.ok) {
+      console.error('Failed to fetch PDF from Cloudinary:', pdfUrl);
+      return new NextResponse('Failed to fetch PDF from storage', { status: 500 });
+    }
+    const pdfBuffer = await cloudinaryRes.arrayBuffer();
+
+    // 5️⃣ Return PDF with proper filename
+    return new NextResponse(pdfBuffer, {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="task-${taskIdNum}.pdf"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+  } catch (error: any) {
+    console.error('Error downloading task PDF:', error);
+    return new NextResponse('Internal server error', { status: 500 });
   }
 }

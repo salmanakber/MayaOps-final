@@ -10,13 +10,21 @@ import { UserRole } from '@prisma/client';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password, firstName, lastName, role = 'CLEANER' } = body;
+    const { email, password, firstName, lastName, companyName, role = 'OWNER' } = body;
 
     // Validate input
     if (!email || !password) {
       return NextResponse.json({
         success: false,
         message: 'Email and password are required'
+      }, { status: 400 });
+    }
+
+    // Company name is required for registration (no standalone users)
+    if (!companyName || companyName.trim() === '') {
+      return NextResponse.json({
+        success: false,
+        message: 'Company name is required for registration'
       }, { status: 400 });
     }
 
@@ -52,8 +60,8 @@ export async function POST(request: NextRequest) {
     // Hash password
     const passwordHash = await hashPassword(password);
 
-    // Validate role
-    const userRole = role.toUpperCase() as UserRole;
+    // Validate role - new registrations should be OWNER (default) to manage their company
+    const userRole = (role.toUpperCase() as UserRole) || UserRole.OWNER;
     if (!Object.values(UserRole).includes(userRole)) {
       return NextResponse.json({
         success: false,
@@ -61,14 +69,25 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Create new user
+    // Create company first
+    const company = await prisma.company.create({
+      data: {
+        name: companyName.trim(),
+        subscriptionStatus: 'unpaid', // Start with trial status
+        isTrialActive: false,
+        trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days trial
+      }
+    });
+
+    // Create new user with company
     const user = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         passwordHash,
         firstName,
         lastName,
-        role: userRole
+        role: userRole,
+        companyId: company.id
       }
     });
 

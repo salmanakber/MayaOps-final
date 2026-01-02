@@ -16,15 +16,16 @@ export async function GET(request: NextRequest) {
   try {
     let companyId: number | null = null;
 
-    // Owners and developers can see all companies, others see only their company
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if(companyIdParam !== null) {
+      companyId = parseInt(companyIdParam);
+    }
+    else {
       companyId = requireCompanyScope(tokenUser);
       if (!companyId) {
         return NextResponse.json({ success: false, message: 'No company scope' }, { status: 403 });
       }
-    } else if (companyIdParam) {
-      companyId = parseInt(companyIdParam);
     }
+   
 
     const where = companyId ? { companyId } : {};
 
@@ -65,6 +66,8 @@ export async function GET(request: NextRequest) {
         },
       },
     });
+
+    console.log('billingRecords', billingRecords);
 
     // Calculate summary using Prisma aggregations
     const thirtyDaysAgo = new Date();

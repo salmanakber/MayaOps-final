@@ -253,13 +253,27 @@ export async function sendBulkFCMPushNotifications(
     const messaging = admin.messaging(app);
 
     // Convert to Firebase Admin format
-    const firebaseMessages: admin.messaging.Message[] = messages.map(msg => ({
-      token: msg.token,
-      notification: msg.notification,
-      data: msg.data || {},
-      android: msg.android,
-      apns: msg.apns,
-    }));
+    const firebaseMessages: admin.messaging.Message[] = messages.map(msg => {
+        const message: admin.messaging.Message = {
+          token: msg.token,
+          notification: msg.notification,
+          data: msg.data || {},
+          android: msg.android,
+        };
+      
+        // Only include apns if msg.apns exists or if we want to always send iOS payload
+        message.apns = {
+          payload: {
+            aps: {
+              sound: msg.apns?.payload?.aps?.sound ?? 'default',
+              badge: msg.apns?.payload?.aps?.badge ?? 0,
+            } as admin.messaging.Aps, // ✅ cast to Aps type
+          },
+        };
+      
+        return message;
+      });
+      
 
     // Send in batches (FCM allows up to 500 messages per batch)
     const batchSize = 500;

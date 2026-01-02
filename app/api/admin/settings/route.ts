@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
   const { tokenUser } = auth;
 
   // Only SUPER_ADMIN and DEVELOPER can modify settings
-  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'DEVELOPER') {
+  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'ADMIN_UNIQUE' && tokenUser.role !== 'DEVELOPER') {
     return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
   }
 
@@ -178,7 +178,7 @@ export async function DELETE(request: NextRequest) {
   const { tokenUser } = auth;
 
   // Only SUPER_ADMIN and DEVELOPER can delete settings
-  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'DEVELOPER') {
+  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'ADMIN_UNIQUE' && tokenUser.role !== 'DEVELOPER') {
     return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
   }
 

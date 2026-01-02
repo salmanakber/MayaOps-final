@@ -44,6 +44,7 @@ const CATEGORIES = [
   { value: 'stripe', label: 'Stripe Integration', icon: CreditCard, description: 'Manage payments and webhook keys' },
   { value: 'billing', label: 'Billing Configuration', icon: Receipt, description: 'Pricing models and trial periods' },
   { value: 'email', label: 'Email Services', icon: Mail, description: 'SMTP, AWS SES, Brevo, and SendGrid settings' },
+  { value: 'notifications', label: 'Push Notifications', icon: Smartphone, description: 'FCM and Expo push notification settings' },
   { value: 'google_maps', label: 'Google Maps', icon: MapIcon, description: 'API keys for map rendering' },
   { value: 'app', label: 'Application', icon: Smartphone, description: 'Version control and maintenance' },
   { value: 'general', label: 'General', icon: SettingsIcon, description: 'Global system preferences' },
@@ -76,6 +77,10 @@ const DEFAULT_SETTINGS = {
     { key: 'brevo_sender_name', description: 'Brevo Sender Name', isEncrypted: false },
     { key: 'sendgrid_api_key', description: 'SendGrid API Key (legacy)', isEncrypted: true },
     { key: 'from_email', description: 'System From Email', isEncrypted: false },
+  ],
+  notifications: [
+    { key: 'notification_provider', description: 'Notification Provider (expo|fcm)', isEncrypted: false },
+    { key: 'fcm_service_account', description: 'FCM Service Account JSON', isEncrypted: true },
   ],
   google_maps: [
     { key: 'google_maps_api_key', description: 'Google Maps API Key', isEncrypted: true },
@@ -412,6 +417,59 @@ export default function AdminSettingsPage() {
               </div>
             )}
           </div>
+
+          {/* Notification Provider Toggle (if in notifications category) */}
+          {selectedCategory === 'notifications' && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-1">Notification Provider</h3>
+                  <p className="text-xs text-gray-600">Switch between Expo and FCM push notification services</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(() => {
+                      const providerSetting = settings.find(s => s.key === 'notification_provider');
+                      return providerSetting?.value === 'fcm';
+                    })()}
+                    onChange={async (e) => {
+                      const newValue = e.target.checked ? 'fcm' : 'expo';
+                      const token = getAuthToken();
+                      if (!token) return;
+                      
+                      try {
+                        const response = await fetch(`/api/admin/settings/${encodeURIComponent('notification_provider')}`, {
+                          method: 'PATCH',
+                          headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                          },
+                          body: JSON.stringify({ value: newValue }),
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                          loadSettings();
+                        } else {
+                          alert(data.message || 'Failed to update notification provider');
+                        }
+                      } catch (error) {
+                        alert('Failed to update notification provider');
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  <span className="ml-3 text-sm font-medium text-gray-700">
+                    {(() => {
+                      const providerSetting = settings.find(s => s.key === 'notification_provider');
+                      return providerSetting?.value === 'fcm' ? 'FCM' : 'Expo';
+                    })()}
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
 
           {/* Quick Add Suggestions */}
           <div className="pt-4">

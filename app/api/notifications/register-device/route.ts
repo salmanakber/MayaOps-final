@@ -10,24 +10,35 @@ export async function POST(request: NextRequest) {
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 
+  let body: any = {};
   try {
-    const body = await request.json();
-    const { expoPushToken, deviceId, platform } = body;
+    body = await request.json();
+    const { expoPushToken, fcmToken, deviceId, platform } = body;
     const userId = auth.tokenUser.userId;
 
-    if (!expoPushToken) {
-      return NextResponse.json({ success: false, message: 'expoPushToken is required' }, { status: 400 });
+    // At least one token type must be provided
+    if (!expoPushToken && !fcmToken) {
+      return NextResponse.json({ success: false, message: 'expoPushToken or fcmToken is required' }, { status: 400 });
     }
 
-    console.log('expoPushToken', expoPushToken);
-    console.log('deviceId', deviceId);
-    console.log('platform', platform);
-    console.log('userId', userId);
+    console.log('📱 Device registration request received');
+    console.log('   - User ID:', userId);
+    console.log('   - Expo Token:', expoPushToken ? expoPushToken.substring(0, 30) + '...' : 'none');
+    console.log('   - FCM Token:', fcmToken ? fcmToken.substring(0, 30) + '...' : 'none');
+    console.log('   - Device ID:', deviceId || 'none');
+    console.log('   - Platform:', platform || 'unknown');
 
-    // Validate Expo push token format
-    const { Expo } = require('expo-server-sdk');
-    if (!Expo.isExpoPushToken(expoPushToken)) {
-      return NextResponse.json({ success: false, message: 'Invalid Expo push token format' }, { status: 400 });
+    // Validate Expo push token format if provided
+    if (expoPushToken) {
+      const { Expo } = require('expo-server-sdk');
+      if (!Expo.isExpoPushToken(expoPushToken)) {
+        return NextResponse.json({ success: false, message: 'Invalid Expo push token format' }, { status: 400 });
+      }
+    }
+
+    // Validate FCM token format if provided (basic check - FCM tokens are typically long strings)
+    if (fcmToken && (typeof fcmToken !== 'string' || fcmToken.length < 10)) {
+      return NextResponse.json({ success: false, message: 'Invalid FCM token format' }, { status: 400 });
     }
 
     // First, deactivate tokens older than 3 days for this user
@@ -47,15 +58,45 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Check if this exact token exists for this user
-    const existingToken = await prisma.deviceToken.findUnique({
-      where: {
-        userId_expoPushToken: {
+    // Check if this exact token exists for this user (check both Expo and FCM)
+    let existingToken = null;
+    
+    if (expoPushToken) {
+      try {
+        existingToken = await prisma.deviceToken.findFirst({
+          where: {
+            userId,
+            expoPushToken,
+          },
+        });
+      } catch (error) {
+        console.log('Error finding existing Expo token:', error);
+      }
+    }
+    
+    if (!existingToken && fcmToken) {
+      try {
+        existingToken = await prisma.deviceToken.findFirst({
+          where: {
+            userId,
+            fcmToken: fcmToken as any, // Type assertion needed until Prisma client is regenerated
+          },
+        });
+      } catch (error) {
+        console.log('Error finding existing FCM token:', error);
+      }
+    }
+
+    // If no exact match, try to find by deviceId and platform
+    if (!existingToken && deviceId) {
+      existingToken = await prisma.deviceToken.findFirst({
+        where: {
           userId,
-          expoPushToken,
+          deviceId,
+          platform,
         },
-      },
-    });
+      });
+    }
 
     let deviceToken;
     if (existingToken) {
@@ -66,8 +107,10 @@ export async function POST(request: NextRequest) {
         },
         data: {
           isActive: true,
-          deviceId: deviceId || undefined,
-          platform: platform || undefined,
+          expoPushToken: expoPushToken || existingToken.expoPushToken,
+          fcmToken: (fcmToken || existingToken.fcmToken) as any, // Type assertion needed until Prisma client is regenerated
+          deviceId: deviceId || existingToken.deviceId || undefined,
+          platform: platform || existingToken.platform || undefined,
           updatedAt: new Date(),
         },
       });
@@ -77,7 +120,8 @@ export async function POST(request: NextRequest) {
       deviceToken = await prisma.deviceToken.create({
         data: {
           userId,
-          expoPushToken,
+          expoPushToken: expoPushToken || null,
+          fcmToken: (fcmToken || null) as any, // Type assertion needed until Prisma client is regenerated
           deviceId: deviceId || null,
           platform: platform || null,
           isActive: true,
@@ -86,7 +130,12 @@ export async function POST(request: NextRequest) {
       console.log(`✅ New device token created for user ${userId}`);
     }
 
-    console.log(`✅ Device token registered/updated for user ${userId}: ${expoPushToken.substring(0, 30)}... (Platform: ${platform || 'unknown'}, Device: ${deviceId || 'unknown'})`);
+    const tokenDisplay = body.expoPushToken 
+      ? `Expo: ${body.expoPushToken.substring(0, 30)}...` 
+      : body.fcmToken 
+        ? `FCM: ${body.fcmToken.substring(0, 30)}...` 
+        : 'No token';
+    console.log(`✅ Device token registered/updated for user ${userId}: ${tokenDisplay} (Platform: ${platform || 'unknown'}, Device: ${deviceId || 'unknown'})`);
     console.log(`📊 Device token ID: ${deviceToken.id}, Active: ${deviceToken.isActive}`);
 
     return NextResponse.json({ 
@@ -94,9 +143,33 @@ export async function POST(request: NextRequest) {
       message: 'Device registered successfully',
       data: { tokenId: deviceToken.id }
     });
-  } catch (error) {
-    console.error('Device registration error:', error);
-    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+  } catch (error: any) {
+    console.error('❌ Device registration error:', error);
+    console.error('   Error message:', error.message);
+    console.error('   Error stack:', error.stack);
+    console.error('   User ID:', auth?.tokenUser?.userId);
+    console.error('   Request body:', { expoPushToken: body.expoPushToken ? 'provided' : 'missing', fcmToken: body.fcmToken ? 'provided' : 'missing' });
+    
+    // Provide more specific error messages
+    if (error.message?.includes('Unique constraint')) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Device token already exists for this user' 
+      }, { status: 409 });
+    }
+    
+    if (error.message?.includes('Foreign key constraint')) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Invalid user ID' 
+      }, { status: 400 });
+    }
+    
+    return NextResponse.json({ 
+      success: false, 
+      message: error.message || 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    }, { status: 500 });
   }
 }
 

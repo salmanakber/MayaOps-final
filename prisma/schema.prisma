@@ -406,7 +406,8 @@ model UserPreferences {
 model DeviceToken {
   id            Int      @id @default(autoincrement())
   userId        Int      @map("user_id")
-  expoPushToken String   @map("expo_push_token")
+  expoPushToken String?  @map("expo_push_token") // Optional - for Expo notifications
+  fcmToken      String?  @map("fcm_token") // Optional - for FCM notifications
   deviceId      String?  @map("device_id") // Optional device identifier
   platform      String? // 'ios', 'android', 'web'
   isActive      Boolean  @default(true) @map("is_active")
@@ -416,8 +417,10 @@ model DeviceToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, expoPushToken])
+  @@unique([userId, fcmToken])
   @@index([userId])
   @@index([expoPushToken])
+  @@index([fcmToken])
   @@index([isActive])
   @@map("device_tokens")
 }

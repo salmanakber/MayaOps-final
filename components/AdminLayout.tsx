@@ -130,9 +130,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   // Only show Notifications for COMPANY_ADMIN, OWNER, DEVELOPER, SUPER_ADMIN
-  if (user?.role !== "COMPANY_ADMIN" && user?.role !== "OWNER" && user?.role !== "DEVELOPER" && user?.role !== "SUPER_ADMIN") {
-    navigation = navigation.filter(item => item.name !== "Notifications")
-  }
+  // if (user?.role !== "COMPANY_ADMIN" && user?.role !== "OWNER" && user?.role !== "DEVELOPER" && user?.role !== "SUPER_ADMIN") {
+  //   navigation = navigation.filter(item => item.name !== "Notifications")
+  // }
 
   // Filter navigation based on search
   const filteredNavigation = searchTerm

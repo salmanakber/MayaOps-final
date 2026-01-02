@@ -105,16 +105,32 @@ export async function createNotification(payload: NotificationPayload & { sendEm
       }
     }
 
-    // Send Expo push notification if user has push token
+    // Send push notification (Expo or FCM based on admin settings)
     try {
-      const { sendExpoPushNotification } = await import('./expo-push');
+      // Check admin settings for notification provider preference
+      const notificationProvider = await prisma.systemSetting.findUnique({
+        where: { key: 'notification_provider' },
+        select: { value: true },
+      });
+
+      const provider = notificationProvider?.value || 'expo'; // Default to Expo
+
       // Include screen route and params in push notification data for deep linking
       const pushMetadata = {
         ...payload.metadata,
         screenRoute: screenInfo.route,
         screenParams: screenInfo.params,
       };
-      await sendExpoPushNotification(payload.userId, payload.title, payload.message, pushMetadata);
+
+      if (provider === 'fcm') {
+        // Use FCM for push notifications
+        const { sendFCMPushNotification } = await import('./fcm-push');
+        await sendFCMPushNotification(payload.userId, payload.title, payload.message, pushMetadata);
+      } else {
+        // Use Expo for push notifications (default)
+        const { sendExpoPushNotification } = await import('./expo-push');
+        await sendExpoPushNotification(payload.userId, payload.title, payload.message, pushMetadata);
+      }
     } catch (pushError) {
       console.error('Error sending push notification:', pushError);
       // Don't fail the notification creation if push fails

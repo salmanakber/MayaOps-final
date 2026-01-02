@@ -96,9 +96,10 @@ export async function PATCH(
   }
 
   const { tokenUser } = auth;
+  console.log('tokenUser', tokenUser);
 
   // Only SUPER_ADMIN and DEVELOPER can modify settings
-  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'DEVELOPER') {
+  if (tokenUser.role !== 'SUPER_ADMIN' && tokenUser.role !== 'ADMIN_UNIQUE' && tokenUser.role !== 'DEVELOPER') {
     return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
   }
 

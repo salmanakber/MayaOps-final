@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth, requireCompanyScope } from '@/lib/rbac';
 import { UserRole } from '@prisma/client';
+import { createNotification } from '@/lib/notifications';
 
 /**
  * POST /api/payroll/generate
@@ -236,6 +237,31 @@ export async function POST(request: NextRequest) {
             console.error(`❌ Error creating expense for payroll ${payrollRecord.id}:`, expenseError);
             // Don't fail payroll creation if expense creation fails, but log it
             errors.push(`Warning: Payroll created but expense entry failed for ${employeeFirstName} ${employeeLastName}`);
+          }
+
+          // Send notification to the employee about new payroll record
+          try {
+            const startDateStr = new Date(periodStart).toLocaleDateString('en-GB');
+            const endDateStr = new Date(periodEnd).toLocaleDateString('en-GB');
+            
+            await createNotification({
+              userId: payrollData.userId,
+              title: 'New Payroll Generated',
+              message: `A payroll record has been generated for you for the period ${startDateStr} to ${endDateStr}. Amount: £${Number(payrollData.totalAmount).toFixed(2)}`,
+              type: 'payment_alert',
+              metadata: {
+                payrollRecordId: payrollRecord.id,
+                status: 'pending',
+                amount: Number(payrollData.totalAmount),
+              },
+              screenRoute: 'Payroll',
+              screenParams: { payrollRecordId: payrollRecord.id },
+            });
+
+            console.log(`✅ Sent payroll generation notification to user ${payrollData.userId}`);
+          } catch (notifError) {
+            console.error(`Error sending payroll generation notification to user ${payrollData.userId}:`, notifError);
+            // Don't fail payroll creation if notification fails
           }
 
           createdPayrollRecords.push(payrollRecord);

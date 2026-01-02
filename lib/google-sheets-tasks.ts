@@ -296,34 +296,68 @@ export async function importTasksFromSheet(
               description: { contains: searchPattern },
             },
           });
+          
           if (existingTask) {
-            
-          } else {
-            
+            console.log(`[Sheet Sync] Found existing task by unique value: ${uniqueValue} (Task ID: ${existingTask.id})`);
           }
         } else if (uniqueColumn && uniqueTaskField) {
           // Unique column is configured but no value in this row - log warning but continue
-          
+          console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" configured but no value in row for task: ${taskRow.title}`);
         }
         
-        // Fallback: Only check by title + scheduledDate if NO unique column is configured
-        // If unique column IS configured but value is missing, we still create new task (don't match by title+date)
-        if (!existingTask && !uniqueColumn && scheduledDate && taskRow.title) {
-          
-          existingTask = await prisma.task.findFirst({
-            where: {
-              propertyId,
-              title: taskRow.title,
-              scheduledDate,
-            },
-          });
-          if (existingTask) {
-            
-          } else {
-            
+        // Fallback: If no unique column or unique value not found, compare all mapped column data
+        if (!existingTask) {
+          // Build a comprehensive search query based on all mapped fields
+          const whereClause: any = {
+            propertyId,
+          };
+
+          // Add title if available
+          if (taskRow.title) {
+            whereClause.title = taskRow.title;
           }
-        } else if (!existingTask && !uniqueColumn) {
-          
+
+          // Add scheduled date if available
+          if (scheduledDate) {
+            whereClause.scheduledDate = scheduledDate;
+          }
+
+          // Add description if available (exact match)
+          if (taskRow.description) {
+            whereClause.description = taskRow.description;
+          }
+
+          // Add status if available
+          if (taskRow.status) {
+            whereClause.status = taskRow.status;
+          }
+
+          // Only search if we have at least title or scheduledDate
+          if (whereClause.title || whereClause.scheduledDate) {
+            // Try to find exact match first
+            existingTask = await prisma.task.findFirst({
+              where: whereClause,
+            });
+
+            if (existingTask) {
+              console.log(`[Sheet Sync] Found existing task by column data match (Task ID: ${existingTask.id})`);
+            } else {
+              // If exact match not found, try partial match (title + scheduledDate)
+              if (whereClause.title && whereClause.scheduledDate) {
+                existingTask = await prisma.task.findFirst({
+                  where: {
+                    propertyId,
+                    title: whereClause.title,
+                    scheduledDate: whereClause.scheduledDate,
+                  },
+                });
+                
+                if (existingTask) {
+                  console.log(`[Sheet Sync] Found existing task by title + date match (Task ID: ${existingTask.id})`);
+                }
+              }
+            }
+          }
         }
 
         // Build description with unique value marker if available

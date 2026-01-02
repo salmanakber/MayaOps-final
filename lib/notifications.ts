@@ -92,11 +92,11 @@ export async function createNotification(payload: NotificationPayload & { sendEm
         // Generate email HTML based on notification type
         const emailHtml = generateEmailTemplate(payload, user);
         
-        await sendEmail({
-          to: user!.email,
-          subject: payload.title,
-          html: emailHtml,
-        });
+        // await sendEmail({
+        //   to: user!.email,
+        //   subject: payload.title,
+        //   html: emailHtml,
+        // });
         
         console.log(`📧 Email sent: ${payload.type} to ${user!.email}`);
       } catch (emailError) {

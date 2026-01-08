@@ -55,3 +55,4 @@ ALTER TABLE "user_preferences" ADD CONSTRAINT "user_preferences_user_id_fkey" FO
 ALTER TABLE "device_tokens" ADD CONSTRAINT "device_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
+

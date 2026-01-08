@@ -11,3 +11,4 @@ ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "sheet_sync_enabled" BOOLEAN D
 CREATE INDEX IF NOT EXISTS "properties_sheet_sync_enabled_idx" ON "properties"("sheet_sync_enabled");
 CREATE INDEX IF NOT EXISTS "properties_sheet_last_synced_at_idx" ON "properties"("sheet_last_synced_at");
 
+

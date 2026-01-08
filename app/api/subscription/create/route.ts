@@ -2,12 +2,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/rbac';
 import { UserRole } from '@prisma/client';
-import { createCustomer, createSubscriptionWithTrial, calculateBilling } from '@/lib/stripe';
+import { createCustomer, createSubscriptionWithTrial, calculateBilling, createStripeInstance, decrypt } from '@/lib/stripe';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
-});
+// Helper function to get Stripe secret key from SystemSetting with env fallback
+async function getStripeSecretKey(): Promise<string> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'stripe_secret_key' },
+    });
+
+    if (setting) {
+      return setting.isEncrypted 
+        ? decrypt(setting.value) 
+        : setting.value;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch Stripe secret key from settings:', error);
+  }
+
+  // Fallback to environment variable
+  return process.env.STRIPE_SECRET_KEY || '';
+}
+
+// Initialize Stripe instance (will be created in route handler with proper key)
+let stripeInstance: Stripe | null = null;
 
 // Create subscription with 14-day free trial
 export async function POST(request: NextRequest) {
@@ -24,6 +43,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // Get Stripe secret key from SystemSetting with env fallback
+    if (!stripeInstance) {
+      const secretKey = await getStripeSecretKey();
+      if (!secretKey) {
+        return NextResponse.json({ 
+          success: false, 
+          message: 'Stripe secret key not configured. Please configure it in Admin Settings.' 
+        }, { status: 500 });
+      }
+      stripeInstance = createStripeInstance(secretKey);
+    }
+
     const body = await request.json();
     const { 
       companyId, 
@@ -121,39 +152,48 @@ export async function POST(request: NextRequest) {
     if (billingRecord?.stripeCustomerId) {
       customerId = billingRecord.stripeCustomerId;
       // Update customer if needed
-      await stripe.customers.update(customerId, {
+      await stripeInstance!.customers.update(customerId, {
         email,
         name: companyName,
         metadata: { companyId: companyId.toString() },
       });
     } else {
-      const customer = await createCustomer(email, companyName, companyId);
+      const customer = await createCustomer(email, companyName, companyId, stripeInstance);
       customerId = customer.id;
     }
 
     // Attach payment method to customer
-    await stripe.paymentMethods.attach(paymentMethodId, {
+    await stripeInstance!.paymentMethods.attach(paymentMethodId, {
       customer: customerId,
     });
 
     // Set as default payment method
-    await stripe.customers.update(customerId, {
+    await stripeInstance!.customers.update(customerId, {
       invoice_settings: {
         default_payment_method: paymentMethodId,
       },
     });
 
-    // Get Stripe price IDs from admin settings
-    const stripeBasePriceId = await (prisma as any).systemSetting.findUnique({
-      where: { key: 'stripe_base_price_id' },
-    }).catch(() => null);
-    const stripePropertyPriceId = await (prisma as any).systemSetting.findUnique({
-      where: { key: 'stripe_property_price_id' },
-    }).catch(() => null);
+    // Get Stripe price IDs from SystemSetting with env fallback
+    let stripeBasePriceId: { value: string } | null = null;
+    let stripePropertyPriceId: { value: string } | null = null;
+    
+    try {
+      stripeBasePriceId = await prisma.systemSetting.findUnique({
+        where: { key: 'stripe_base_price_id' },
+        select: { value: true },
+      });
+      stripePropertyPriceId = await prisma.systemSetting.findUnique({
+        where: { key: 'stripe_property_price_id' },
+        select: { value: true },
+      });
+    } catch (error) {
+      console.warn('Failed to fetch Stripe price IDs from settings:', error);
+    }
     
     // Fallback to environment variables if not in settings
-    const basePriceId = stripeBasePriceId?.value || process.env.STRIPE_PRICE_ID_BASE_55_PRICE || '';
-    const propertyPriceId = stripePropertyPriceId?.value || process.env.STRIPE_PRICe_ID_PROPERTY_BASE || '';
+    const basePriceId = stripeBasePriceId?.value || process.env.STRIPE_PRICE_ID_BASE_55_PRICE || process.env.STRIPE_BASE_PRICE_ID || '';
+    const propertyPriceId = stripePropertyPriceId?.value || process.env.STRIPE_PRICE_ID_PROPERTY_BASE || process.env.STRIPE_PROPERTY_PRICE_ID || '';
     
     if (!basePriceId) {
       return NextResponse.json({ 
@@ -176,7 +216,8 @@ export async function POST(request: NextRequest) {
       basePriceId,
       propertyPriceId,
       propertyCount,
-      TRIAL_DAYS
+      TRIAL_DAYS,
+      stripeInstance
     );
 
     // Extract subscription item IDs from the subscription

@@ -12,3 +12,4 @@ CREATE INDEX IF NOT EXISTS "payroll_records_period_idx" ON "payroll_records" ("p
 ALTER TABLE "tasks" ADD COLUMN "budget" DECIMAL(10,2);
 
 
+

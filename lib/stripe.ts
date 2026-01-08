@@ -1,8 +1,40 @@
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+// Helper function to decrypt encrypted settings (for use in route handlers)
+export function decrypt(encryptedText: string): string {
+  const crypto = require('crypto');
+  const algorithm = 'aes-256-cbc';
+  const key = Buffer.from(process.env.ENCRYPTION_KEY || 'default-key-that-should-be-changed-in-production-32-char', 'utf8');
+  const iv = Buffer.from(encryptedText.substring(0, 32), 'hex');
+  const encrypted = encryptedText.substring(32);
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// Get Stripe secret key - use env var directly here
+// Route handlers will fetch from SystemSetting and pass it in
+// This keeps the library functions synchronous while allowing routes to use settings
+function getStripeSecretKey(): string {
+  // For library use, fallback to env var
+  // Routes should fetch from SystemSetting and initialize Stripe there
+  return process.env.STRIPE_SECRET_KEY || '';
+}
+
+// Initialize Stripe with secret key from env (fallback)
+// Route handlers that use SystemSetting should create their own Stripe instance
+const stripeSecretKey = getStripeSecretKey();
+const stripe = new Stripe(stripeSecretKey || 'dummy-key-for-initialization', {
   apiVersion: '2023-10-16',
 });
+
+// Export a function to create Stripe instance with custom key (for route handlers)
+export function createStripeInstance(secretKey: string): Stripe {
+  return new Stripe(secretKey, {
+    apiVersion: '2023-10-16',
+  });
+}
 
 export interface BillingCalculation {
   basePrice: number;
@@ -27,8 +59,9 @@ export function calculateBilling(
   };
 }
 
-export async function createCustomer(email: string, name: string, companyId: number) {
-  const customer = await stripe.customers.create({
+export async function createCustomer(email: string, name: string, companyId: number, stripeInstance?: Stripe) {
+  const s = stripeInstance || stripe;
+  const customer = await s.customers.create({
     email,
     name,
     metadata: {
@@ -67,8 +100,11 @@ export async function createSubscriptionWithTrial(
   basePriceId: string,
   propertyPriceId: string,
   propertyCount: number = 0,
-  trialDays: number = 14
+  trialDays: number = 14,
+  stripeInstance?: Stripe
 ) {
+  const s = stripeInstance || stripe;
+  
   // Create subscription with trial period using both base and property usage prices
   const items: Stripe.SubscriptionCreateParams.Item[] = [
     {
@@ -86,7 +122,7 @@ export async function createSubscriptionWithTrial(
     });
   }
 
-  const subscription = await stripe.subscriptions.create({
+  const subscription = await s.subscriptions.create({
     customer: customerId,
     items,
     trial_period_days: trialDays,
@@ -103,7 +139,7 @@ export async function createSubscriptionWithTrial(
     
     if (propertyItem) {
       // Report usage for the current billing period
-      await stripe.subscriptionItems.update(
+      await s.subscriptionItems.update(
         propertyItem.id,
         {
           quantity: propertyCount,

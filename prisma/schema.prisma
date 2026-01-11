@@ -137,6 +137,7 @@ model Task {
   status                   TaskStatus @default(DRAFT)
   scheduledDate            DateTime?  @map("scheduled_date")
   moveInDate               DateTime?  @map("move_in_date") // Move-in date for reserved/awaiting tasks
+  uniqueIdentifier         String?    @map("unique_identifier") // Unique identifier from Google Sheets to prevent duplicates
   startedAt                DateTime?  @map("started_at")
   completedAt              DateTime?  @map("completed_at")
   isRecurring              Boolean    @default(false) @map("is_recurring")
@@ -171,6 +172,7 @@ model Task {
   @@index([status])
   @@index([scheduledDate])
   @@index([parentTaskId])
+  @@unique([propertyId, uniqueIdentifier]) // Ensure unique identifier is unique per property (NULL values are allowed)
   @@map("tasks")
 }
 

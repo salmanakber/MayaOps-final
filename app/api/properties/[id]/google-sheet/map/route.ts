@@ -33,6 +33,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       googleSheetUrl 
     } = body;
 
+    
+
     if (!spreadsheetId || !sheetName || !columnMapping) {
       return NextResponse.json({ 
         success: false, 
@@ -78,7 +80,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       uniqueColumn || undefined
     );
 
-    console.log('importResult', importResult);
+    
 
     return NextResponse.json({
       success: true,

@@ -236,6 +236,8 @@ export function parseTaskRows(
     });
 
     // Only add if at least title is present
+
+    
     if (task.title) {
       tasks.push(task);
     }
@@ -276,37 +278,75 @@ export async function importTasksFromSheet(
     const headerRow = rows[0] || [];
     const taskRows = parseTaskRows(rows, columnMapping, headerRow);
     
-    
+    // Find the index of the unique column in the header row
+    let uniqueColumnIndex: number | null = null;
+    if (uniqueColumn) {
+      uniqueColumnIndex = headerRow.indexOf(uniqueColumn);
+      if (uniqueColumnIndex === -1) {
+        console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" not found in sheet headers!`);
+      } else {
+        console.log(`[Sheet Sync] Unique column "${uniqueColumn}" found at index ${uniqueColumnIndex}`);
+      }
+    }
 
     const createdTasks = [];
     const updatedTasks = [];
     const errors = [];
+    
+    // Create a map to match taskRows back to original rows by title (or other unique characteristics)
+    // Since parseTaskRows filters rows, we need to match them back
+    let taskRowIndex = 0;
 
-    // Map uniqueColumn (sheet column name) to the task field it maps to
-    let uniqueTaskField: string | null = null;
-    if (uniqueColumn) {
-      // Find which task field the uniqueColumn maps to
-      uniqueTaskField = columnMapping[uniqueColumn] || null;
-      
-      if (!uniqueTaskField) {
-        console.log('111 Unique column not found in column mapping', uniqueColumn);
-        console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" not found in column mapping!`);
+    
+    // Build fieldToIndex mapping once (reused for checking titles)
+    const fieldToIndex: { [field: string]: number } = {};
+    Object.entries(columnMapping).forEach(([sheetColumn, taskField]) => {
+      const index = headerRow.indexOf(sheetColumn);
+      if (index !== -1) {
+        fieldToIndex[taskField] = index;
       }
-    } else {
+    });
+    
+    // Process each taskRow and match it back to the raw row to extract unique identifier
+    for (let taskRowIndex = 0; taskRowIndex < taskRows.length; taskRowIndex++) {
+      const taskRow = taskRows[taskRowIndex];
       
-    }
-
-    
-    
-    for (const taskRow of taskRows) {
       try {
-        // Get unique value from taskRow using the mapped field
+        // Find the corresponding raw row by matching title (since parseTaskRows filters rows)
         let uniqueValue: string | null = null;
-        if (uniqueTaskField && taskRow[uniqueTaskField]) {
-          uniqueValue = String(taskRow[uniqueTaskField]).trim();
-          console.log('222 Unique value', uniqueValue);
-        } else {
-          
+        let matchedRawRowIndex: number | null = null;
+        
+        // Try to find the raw row that matches this taskRow
+        // We'll search for a row with the same title
+        if (uniqueColumn && uniqueColumnIndex !== null && uniqueColumnIndex !== -1) {
+          const titleIndex = fieldToIndex['title'];
+          if (titleIndex !== undefined && taskRow.title) {
+            // Find the raw row that has this title
+            for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
+              const rawRow = rows[rawRowIndex];
+              if (!rawRow || rawRow.length === 0) continue;
+              
+              const rawTitle = rawRow[titleIndex];
+              if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
+                // Found matching row - extract unique value
+                matchedRawRowIndex = rawRowIndex;
+                const rawValue = rawRow[uniqueColumnIndex];
+                if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                  uniqueValue = String(rawValue).trim();
+                  if (uniqueValue.length === 0) {
+                    uniqueValue = null;
+                  }
+                }
+                break;
+              }
+            }
+          }
+        }
+        
+        if (uniqueValue) {
+          console.log(`[Sheet Sync] Extracted unique value from column "${uniqueColumn}" (index ${uniqueColumnIndex}): "${uniqueValue}"`);
+        } else if (uniqueColumn) {
+          console.log(`[Sheet Sync] Unique column "${uniqueColumn}" configured but no value found for task: ${taskRow.title}`);
         }
 
         // Parse scheduled date (supports YYYY-MM-DD and DD/MM/YYYY formats)
@@ -354,40 +394,34 @@ export async function importTasksFromSheet(
         // Check if task already exists - ONLY using unique identifier per property
         let existingTask = null;
         
-        if (uniqueValue) {
-          // Use unique identifier to check for duplicates within this property
-          const searchPattern = `[UNIQUE:${uniqueValue}]`;
+        if (uniqueValue && uniqueValue.trim()) {
+          // Use unique identifier field to check for duplicates within this property
+          console.log(`[Sheet Sync] Checking for existing task with unique identifier: "${uniqueValue}" for property ${propertyId}`);
           
           existingTask = await prisma.task.findFirst({
             where: {
               propertyId, // Ensure we only check within this property
-              description: { contains: searchPattern },
+              uniqueIdentifier: uniqueValue, // Use dedicated uniqueIdentifier field
             },
           });
           
           if (existingTask) {
-            console.log(`[Sheet Sync] Found existing task by unique value: ${uniqueValue} (Task ID: ${existingTask.id}) for property ${propertyId}`);
+            console.log(`[Sheet Sync] ✓ Found existing task by unique identifier: ${uniqueValue} (Task ID: ${existingTask.id}) for property ${propertyId}`);
+          } else {
+            console.log(`[Sheet Sync] ✗ No existing task found with unique identifier: ${uniqueValue} - will create new task`);
           }
-        } else if (uniqueColumn && uniqueTaskField) {
-          console.log('Unique column is configured but no value in this row', uniqueColumn, uniqueTaskField);
+        } else if (uniqueColumn) {
           // Unique column is configured but no value in this row - log warning but continue
           console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" configured but no value in row for task: ${taskRow.title}`);
           console.warn(`[Sheet Sync] Skipping duplicate check - unique identifier is required to prevent duplicates`);
         } else {
-          console.log('No unique column configured', uniqueColumn, uniqueTaskField);
-            // No unique column configured - log warning
+          // No unique column configured - log warning
           console.warn(`[Sheet Sync] WARNING: No unique column configured for property ${propertyId}. Cannot prevent duplicate entries.`);
           console.warn(`[Sheet Sync] Please configure a unique identifier column in the mapping settings.`);
         }
 
-        // Build description with unique value marker if available
+        // Description - no need to add unique marker anymore since we have a dedicated field
         let description = taskRow.description || null;
-        if (uniqueValue) {
-          // Prepend unique marker to description for easy lookup
-          description = description 
-            ? `[UNIQUE:${uniqueValue}] ${description}`
-            : `[UNIQUE:${uniqueValue}]`;
-        }
 
         // Determine status: if moveInDate >= scheduledDate, set to RESERVED
         // This means the move-in date is greater than or equal to the available/scheduled date
@@ -410,23 +444,32 @@ export async function importTasksFromSheet(
           status: taskStatus,
           scheduledDate,
           moveInDate: moveInDate || null,
+          uniqueIdentifier: uniqueValue && uniqueValue.trim() ? uniqueValue.trim() : null,
           assignedUserId: assignedUserId || null,
         };
 
         if (existingTask) {
           // Update existing task
+          console.log(`[Sheet Sync] Updating existing task ID: ${existingTask.id} with unique value: ${uniqueValue}`);
           await prisma.task.update({
             where: { id: existingTask.id },
             data: taskData,
           });
           updatedTasks.push(existingTask.id);
+          console.log(`[Sheet Sync] ✓ Task updated successfully (ID: ${existingTask.id})`);
           
         } else {
-          // Create new task
+          // Create new task (only if unique identifier check didn't find existing task)
+          if (uniqueValue && uniqueValue.trim()) {
+            console.log(`[Sheet Sync] Creating new task with unique value: ${uniqueValue}`);
+          } else {
+            console.log(`[Sheet Sync] Creating new task without unique identifier (may create duplicates)`);
+          }
           const newTask = await prisma.task.create({
             data: taskData,
           });
           createdTasks.push(newTask.id);
+          console.log(`[Sheet Sync] ✓ New task created (ID: ${newTask.id}) with description: ${taskData.description?.substring(0, 100)}`);
           
 
           // Send notification to assigned user if applicable, otherwise notify owners and managers

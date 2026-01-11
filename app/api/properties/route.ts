@@ -190,13 +190,44 @@ export async function POST(request: NextRequest) {
       if (billingRecord?.subscriptionId) {
         const { 
           updatePropertyUsageQuantity, 
-          addPropertyUsageToSubscription 
+          addPropertyUsageToSubscription,
+          createStripeInstance,
+          decrypt
         } = await import("@/lib/stripe");
         
-        // Get property price ID from environment
-        const propertyPriceId = process.env.STRIPE_PRICe_ID_PROPERTY_BASE;
+        // Get Stripe secret key from SystemSetting
+        let stripeSecretKey = '';
+        try {
+          const secretKeySetting = await prisma.systemSetting.findUnique({
+            where: { key: 'stripe_secret_key' },
+          });
+          if (secretKeySetting) {
+            stripeSecretKey = secretKeySetting.isEncrypted 
+              ? decrypt(secretKeySetting.value) 
+              : secretKeySetting.value;
+          }
+        } catch (error) {
+          console.warn('Failed to fetch Stripe secret key from settings:', error);
+          stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+        }
         
-        if (propertyPriceId) {
+        // Get property price ID from SystemSetting
+        let propertyPriceId = '';
+        try {
+          const priceIdSetting = await prisma.systemSetting.findUnique({
+            where: { key: 'stripe_property_price_id' },
+            select: { value: true },
+          });
+          propertyPriceId = priceIdSetting?.value || process.env.STRIPE_PRICE_ID_PROPERTY_BASE || process.env.STRIPE_PROPERTY_PRICE_ID || '';
+        } catch (error) {
+          console.warn('Failed to fetch Stripe property price ID from settings:', error);
+          propertyPriceId = process.env.STRIPE_PRICE_ID_PROPERTY_BASE || process.env.STRIPE_PROPERTY_PRICE_ID || '';
+        }
+        
+        if (propertyPriceId && stripeSecretKey) {
+          // Create Stripe instance with credentials from SystemSetting
+          const stripeInstance = createStripeInstance(stripeSecretKey);
+          
           // @ts-ignore - Field exists in schema but Prisma client needs regeneration
           if (billingRecord.propertyUsageItemId) {
             // Update existing property usage item
@@ -204,14 +235,16 @@ export async function POST(request: NextRequest) {
               billingRecord.subscriptionId,
               // @ts-ignore
               billingRecord.propertyUsageItemId,
-              propertyCount
+              propertyCount,
+              stripeInstance
             );
           } else if (propertyCount > 0) {
             // Add property usage item if it doesn't exist
             const updatedSubscription = await addPropertyUsageToSubscription(
               billingRecord.subscriptionId,
               propertyPriceId,
-              propertyCount
+              propertyCount,
+              stripeInstance
             );
             
             // Find and store the property usage item ID

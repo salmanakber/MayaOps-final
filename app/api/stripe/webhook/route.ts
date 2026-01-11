@@ -1,7 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleWebhook } from '@/lib/stripe';
+import { handleWebhook, decrypt } from '@/lib/stripe';
 import prisma from '@/lib/prisma';
 import stripe from '@/lib/stripe';
+
+// Helper function to get Stripe webhook secret from SystemSetting with env fallback
+async function getStripeWebhookSecret(): Promise<string> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({
+      where: { key: 'stripe_webhook_secret' },
+    });
+
+    if (setting) {
+      return setting.isEncrypted 
+        ? decrypt(setting.value) 
+        : setting.value;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch Stripe webhook secret from settings:', error);
+  }
+
+  // Fallback to environment variable
+  return process.env.STRIPE_WEBHOOK_SECRET || '';
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +32,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No signature' }, { status: 400 });
     }
 
-    const event = await handleWebhook(body, signature);
+    // Get webhook secret from SystemSetting
+    const webhookSecret = await getStripeWebhookSecret();
+    
+    if (!webhookSecret) {
+      return NextResponse.json({ 
+        error: 'Stripe webhook secret not configured. Please configure it in Admin Settings.' 
+      }, { status: 500 });
+    }
+
+    const event = await handleWebhook(body, signature, webhookSecret);
 
     switch (event.type) {
       case 'customer.subscription.created':

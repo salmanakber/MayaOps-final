@@ -78,6 +78,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       uniqueColumn || undefined
     );
 
+    console.log('importResult', importResult);
+
     return NextResponse.json({
       success: true,
       data: {

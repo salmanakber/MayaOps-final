@@ -136,6 +136,7 @@ model Task {
   description              String?    @db.Text
   status                   TaskStatus @default(DRAFT)
   scheduledDate            DateTime?  @map("scheduled_date")
+  moveInDate               DateTime?  @map("move_in_date") // Move-in date for reserved/awaiting tasks
   startedAt                DateTime?  @map("started_at")
   completedAt              DateTime?  @map("completed_at")
   isRecurring              Boolean    @default(false) @map("is_recurring")
@@ -447,6 +448,8 @@ enum TaskStatus {
   REJECTED
   ARCHIVED
   COMPLETED
+  RESERVED
+  AWAITING
 }
 
 enum NoteSeverity {

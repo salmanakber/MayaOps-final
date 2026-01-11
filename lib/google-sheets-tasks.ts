@@ -14,6 +14,7 @@ export interface TaskRow {
   title?: string;
   description?: string;
   scheduledDate?: string;
+  moveInDate?: string;
   assignedUserId?: number;
   status?: string;
   [key: string]: any; // Allow other fields
@@ -156,6 +157,49 @@ export async function fetchSheetData(spreadsheetId: string, sheetName: string = 
 }
 
 /**
+ * Parse date string in multiple formats: YYYY-MM-DD or DD/MM/YYYY
+ */
+function parseDate(dateString: string): Date | null {
+  if (!dateString || typeof dateString !== 'string') {
+    return null;
+  }
+
+  const trimmed = dateString.trim();
+  
+  // Try ISO format first: YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const date = new Date(trimmed);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+  }
+  
+  // Try DD/MM/YYYY format
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+    const parts = trimmed.split('/');
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed in Date
+    const year = parseInt(parts[2], 10);
+    
+    const date = new Date(year, month, day);
+    if (!isNaN(date.getTime()) && 
+        date.getDate() === day && 
+        date.getMonth() === month && 
+        date.getFullYear() === year) {
+      return date;
+    }
+  }
+  
+  // Fallback to standard Date parsing
+  const date = new Date(trimmed);
+  if (!isNaN(date.getTime())) {
+    return date;
+  }
+  
+  return null;
+}
+
+/**
  * Parse sheet rows into task data using column mapping
  */
 export function parseTaskRows(
@@ -217,13 +261,16 @@ export async function importTasksFromSheet(
     });
 
     if (!property) {
+      console.log('Property not found');
       throw new Error("Property not found");
     }
 
     // Fetch sheet data
     const rows = await fetchSheetData(spreadsheetId, sheetName);
     if (rows.length === 0) {
+      console.log('No data found in sheet');
       throw new Error("No data found in sheet");
+
     }
 
     const headerRow = rows[0] || [];
@@ -242,6 +289,7 @@ export async function importTasksFromSheet(
       uniqueTaskField = columnMapping[uniqueColumn] || null;
       
       if (!uniqueTaskField) {
+        console.log('111 Unique column not found in column mapping', uniqueColumn);
         console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" not found in column mapping!`);
       }
     } else {
@@ -256,20 +304,39 @@ export async function importTasksFromSheet(
         let uniqueValue: string | null = null;
         if (uniqueTaskField && taskRow[uniqueTaskField]) {
           uniqueValue = String(taskRow[uniqueTaskField]).trim();
-          
+          console.log('222 Unique value', uniqueValue);
         } else {
           
         }
 
-        // Parse scheduled date
+        // Parse scheduled date (supports YYYY-MM-DD and DD/MM/YYYY formats)
         let scheduledDate: Date | null = null;
         if (taskRow.scheduledDate) {
-          scheduledDate = new Date(taskRow.scheduledDate);
-          if (isNaN(scheduledDate.getTime())) {
-            
-            errors.push({ row: taskRow, error: "Invalid scheduled date format" });
+          scheduledDate = parseDate(taskRow.scheduledDate);
+          if (!scheduledDate) {
+            console.log('Invalid scheduled date format', taskRow.scheduledDate);
+            errors.push({ row: taskRow, error: `Invalid scheduled date format: ${taskRow.scheduledDate}. Expected YYYY-MM-DD or DD/MM/YYYY` });
             continue;
           }
+        }
+
+        // Parse move-in date (supports YYYY-MM-DD and DD/MM/YYYY formats)
+        let moveInDate: Date | null = null;
+        if (taskRow.moveInDate) {
+          moveInDate = parseDate(taskRow.moveInDate);
+          if (!moveInDate) {
+            console.log('Invalid move-in date format', taskRow.moveInDate);
+            errors.push({ row: taskRow, error: `Invalid move-in date format: ${taskRow.moveInDate}. Expected YYYY-MM-DD or DD/MM/YYYY` });
+            continue;
+          }
+        }
+
+        // Normalize dates to midnight for proper comparison (ignore time)
+        if (scheduledDate) {
+          scheduledDate.setHours(0, 0, 0, 0);
+        }
+        if (moveInDate) {
+          moveInDate.setHours(0, 0, 0, 0);
         }
 
         // Find assigned user if email or name provided
@@ -278,86 +345,39 @@ export async function importTasksFromSheet(
           const user = await prisma.user.findUnique({
             where: { email: taskRow.assignedUserEmail },
           });
+          console.log('user', user);
           if (user && user.companyId === property.companyId) {
             assignedUserId = user.id;
           }
         }
 
-        // Check if task already exists
+        // Check if task already exists - ONLY using unique identifier per property
         let existingTask = null;
         
-        // Primary: Check by unique column value if configured and available
         if (uniqueValue) {
+          // Use unique identifier to check for duplicates within this property
           const searchPattern = `[UNIQUE:${uniqueValue}]`;
           
           existingTask = await prisma.task.findFirst({
             where: {
-              propertyId,
+              propertyId, // Ensure we only check within this property
               description: { contains: searchPattern },
             },
           });
           
           if (existingTask) {
-            console.log(`[Sheet Sync] Found existing task by unique value: ${uniqueValue} (Task ID: ${existingTask.id})`);
+            console.log(`[Sheet Sync] Found existing task by unique value: ${uniqueValue} (Task ID: ${existingTask.id}) for property ${propertyId}`);
           }
         } else if (uniqueColumn && uniqueTaskField) {
+          console.log('Unique column is configured but no value in this row', uniqueColumn, uniqueTaskField);
           // Unique column is configured but no value in this row - log warning but continue
           console.warn(`[Sheet Sync] WARNING: Unique column "${uniqueColumn}" configured but no value in row for task: ${taskRow.title}`);
-        }
-        
-        // Fallback: If no unique column or unique value not found, compare all mapped column data
-        if (!existingTask) {
-          // Build a comprehensive search query based on all mapped fields
-          const whereClause: any = {
-            propertyId,
-          };
-
-          // Add title if available
-          if (taskRow.title) {
-            whereClause.title = taskRow.title;
-          }
-
-          // Add scheduled date if available
-          if (scheduledDate) {
-            whereClause.scheduledDate = scheduledDate;
-          }
-
-          // Add description if available (exact match)
-          if (taskRow.description) {
-            whereClause.description = taskRow.description;
-          }
-
-          // Add status if available
-          if (taskRow.status) {
-            whereClause.status = taskRow.status;
-          }
-
-          // Only search if we have at least title or scheduledDate
-          if (whereClause.title || whereClause.scheduledDate) {
-            // Try to find exact match first
-            existingTask = await prisma.task.findFirst({
-              where: whereClause,
-            });
-
-            if (existingTask) {
-              console.log(`[Sheet Sync] Found existing task by column data match (Task ID: ${existingTask.id})`);
-            } else {
-              // If exact match not found, try partial match (title + scheduledDate)
-              if (whereClause.title && whereClause.scheduledDate) {
-                existingTask = await prisma.task.findFirst({
-                  where: {
-                    propertyId,
-                    title: whereClause.title,
-                    scheduledDate: whereClause.scheduledDate,
-                  },
-                });
-                
-                if (existingTask) {
-                  console.log(`[Sheet Sync] Found existing task by title + date match (Task ID: ${existingTask.id})`);
-                }
-              }
-            }
-          }
+          console.warn(`[Sheet Sync] Skipping duplicate check - unique identifier is required to prevent duplicates`);
+        } else {
+          console.log('No unique column configured', uniqueColumn, uniqueTaskField);
+            // No unique column configured - log warning
+          console.warn(`[Sheet Sync] WARNING: No unique column configured for property ${propertyId}. Cannot prevent duplicate entries.`);
+          console.warn(`[Sheet Sync] Please configure a unique identifier column in the mapping settings.`);
         }
 
         // Build description with unique value marker if available
@@ -369,13 +389,27 @@ export async function importTasksFromSheet(
             : `[UNIQUE:${uniqueValue}]`;
         }
 
+        // Determine status: if moveInDate >= scheduledDate, set to RESERVED
+        // This means the move-in date is greater than or equal to the available/scheduled date
+        let taskStatus = taskRow.status || "PLANNED";
+        if (moveInDate && scheduledDate) {
+          // Compare dates: if moveInDate >= scheduledDate, mark as RESERVED
+          if (moveInDate.getTime() >= scheduledDate.getTime()) {
+            taskStatus = "RESERVED";
+          }
+        } else if (moveInDate && !scheduledDate) {
+          // If only moveInDate exists without scheduledDate, also mark as RESERVED
+          taskStatus = "RESERVED";
+        }
+
         const taskData: any = {
           companyId: property.companyId,
           propertyId,
           title: taskRow.title || "Untitled Task",
           description,
-          status: taskRow.status || "PLANNED",
+          status: taskStatus,
           scheduledDate,
+          moveInDate: moveInDate || null,
           assignedUserId: assignedUserId || null,
         };
 

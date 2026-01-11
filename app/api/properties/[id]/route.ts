@@ -100,12 +100,35 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         });
 
         if (billingRecord?.subscriptionId && billingRecord.propertyUsageItemId) {
-          const { updatePropertyUsageQuantity } = await import("@/lib/stripe");
-          await updatePropertyUsageQuantity(
-            billingRecord.subscriptionId,
-            billingRecord.propertyUsageItemId,
-            propertyCount
-          );
+          const { updatePropertyUsageQuantity, createStripeInstance, decrypt } = await import("@/lib/stripe");
+          
+          // Get Stripe secret key from SystemSetting
+          let stripeSecretKey = '';
+          try {
+            const secretKeySetting = await prisma.systemSetting.findUnique({
+              where: { key: 'stripe_secret_key' },
+            });
+            if (secretKeySetting) {
+              stripeSecretKey = secretKeySetting.isEncrypted 
+                ? decrypt(secretKeySetting.value) 
+                : secretKeySetting.value;
+            }
+          } catch (error) {
+            console.warn('Failed to fetch Stripe secret key from settings:', error);
+            stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+          }
+          
+          if (stripeSecretKey) {
+            // Create Stripe instance with credentials from SystemSetting
+            const stripeInstance = createStripeInstance(stripeSecretKey);
+            
+            await updatePropertyUsageQuantity(
+              billingRecord.subscriptionId,
+              billingRecord.propertyUsageItemId,
+              propertyCount,
+              stripeInstance
+            );
+          }
 
           await prisma.billingRecord.update({
             where: { id: billingRecord.id },
@@ -147,8 +170,11 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const companyId = property.companyId;
 
-    // Delete the property
-    await prisma.property.delete({ where: { id } });
+    // Archive the property (set isActive to false instead of deleting)
+    await prisma.property.update({ 
+      where: { id }, 
+      data: { isActive: false } 
+    });
 
     // Update company property count (sum of unitCount)
     const allProperties = await prisma.property.findMany({
@@ -178,13 +204,36 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
       // @ts-ignore - Field exists in schema but Prisma client needs regeneration
       if (billingRecord?.subscriptionId && billingRecord.propertyUsageItemId) {
-        const { updatePropertyUsageQuantity } = await import("@/lib/stripe");
-        await updatePropertyUsageQuantity(
-          billingRecord.subscriptionId,
-          // @ts-ignore
-          billingRecord.propertyUsageItemId,
-          propertyCount
-        );
+        const { updatePropertyUsageQuantity, createStripeInstance, decrypt } = await import("@/lib/stripe");
+        
+        // Get Stripe secret key from SystemSetting
+        let stripeSecretKey = '';
+        try {
+          const secretKeySetting = await prisma.systemSetting.findUnique({
+            where: { key: 'stripe_secret_key' },
+          });
+          if (secretKeySetting) {
+            stripeSecretKey = secretKeySetting.isEncrypted 
+              ? decrypt(secretKeySetting.value) 
+              : secretKeySetting.value;
+          }
+        } catch (error) {
+          console.warn('Failed to fetch Stripe secret key from settings:', error);
+          stripeSecretKey = process.env.STRIPE_SECRET_KEY || '';
+        }
+        
+        if (stripeSecretKey) {
+          // Create Stripe instance with credentials from SystemSetting
+          const stripeInstance = createStripeInstance(stripeSecretKey);
+          
+          await updatePropertyUsageQuantity(
+            billingRecord.subscriptionId,
+            // @ts-ignore
+            billingRecord.propertyUsageItemId,
+            propertyCount,
+            stripeInstance
+          );
+        }
 
         await prisma.billingRecord.update({
           where: { id: billingRecord.id },
@@ -196,9 +245,49 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       // Don't fail the request if Stripe sync fails
     }
 
-    return NextResponse.json({ success: true, message: 'Property deleted' });
+    return NextResponse.json({ success: true, message: 'Property archived' });
   } catch (error) {
     console.error('Property DELETE error:', error);
+    return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// PATCH /api/properties/[id]/archive - Archive a property (set isActive to false)
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+  const auth = requireAuth(request);
+  if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+  const { tokenUser } = auth;
+  const role = tokenUser.role as UserRole;
+
+  const id = Number(params.id);
+  if (Number.isNaN(id)) return NextResponse.json({ success: false, message: 'Invalid id' }, { status: 400 });
+
+  try {
+    const property = await prisma.property.findUnique({ where: { id } });
+    if (!property) return NextResponse.json({ success: false, message: 'Property not found' }, { status: 404 });
+
+    if (!(role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN)) {
+      const companyId = requireCompanyScope(tokenUser);
+      if (!companyId || property.companyId !== companyId) {
+        return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    const body = await request.json();
+    const { isActive } = body;
+
+    if (typeof isActive !== 'boolean') {
+      return NextResponse.json({ success: false, message: 'isActive must be a boolean' }, { status: 400 });
+    }
+
+    const updated = await prisma.property.update({
+      where: { id },
+      data: { isActive },
+    });
+
+    return NextResponse.json({ success: true, data: { property: updated } });
+  } catch (error) {
+    console.error('Property archive error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
   }
 }

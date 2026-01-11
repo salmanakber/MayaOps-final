@@ -70,12 +70,14 @@ export async function GET(request: NextRequest) {
       const pricePerPropertySetting = await prisma.systemSetting.findUnique({
         where: { key: 'price_per_property' },
       });
+    
       
       if (basePriceSetting) {
         defaultBasePrice = parseFloat(basePriceSetting.value) || 55.00;
       } else {
         // Fallback to env var
         defaultBasePrice = parseFloat(process.env.BASE_MONTHLY_PRICE || '55');
+        
       }
       
       if (pricePerPropertySetting) {
@@ -83,19 +85,21 @@ export async function GET(request: NextRequest) {
       } else {
         // Fallback to env var
         defaultPricePerUnit = parseFloat(process.env.PRICE_PER_PROPERTY || '1');
-      }
+        
+        }
     } catch (error) {
       console.warn('Failed to fetch default pricing from SystemSetting, using defaults:', error);
     }
 
     // Calculate pricing - use AdminConfiguration first, then SystemSetting, then company default, then hardcoded
     const basePrice = adminConfig 
-      ? Number(adminConfig.subscriptionBasePrice) 
-      : Number(company.basePrice) || defaultBasePrice;
-    
+      ? Number(defaultBasePrice) 
+      : Number(defaultBasePrice) || Number(55.00);
+
+    console.log('basePrice', basePrice);
     const pricePerUnit = adminConfig 
-      ? Number(adminConfig.propertyPricePerUnit) 
-      : defaultPricePerUnit;
+      ? Number(defaultPricePerUnit) 
+      : Number(defaultPricePerUnit) || Number(1.00);
     
     const currency = adminConfig?.currency || 'GBP';
     

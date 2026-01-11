@@ -8,6 +8,7 @@ import { requireAuth } from '@/lib/rbac';
  */
 export async function POST(request: NextRequest) {
   const auth = requireAuth(request);
+  
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 
   let body: any = {};

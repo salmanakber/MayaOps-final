@@ -24,6 +24,7 @@ async function getStripeSecretKey(): Promise<string> {
   // Fallback to environment variable
   return process.env.STRIPE_SECRET_KEY || '';
 }
+console.log('getStripeSecretKey', getStripeSecretKey());
 
 // Initialize Stripe instance (will be created in route handler with proper key)
 let stripeInstance: Stripe | null = null;
@@ -195,6 +196,9 @@ export async function POST(request: NextRequest) {
     const basePriceId = stripeBasePriceId?.value || process.env.STRIPE_PRICE_ID_BASE_55_PRICE || process.env.STRIPE_BASE_PRICE_ID || '';
     const propertyPriceId = stripePropertyPriceId?.value || process.env.STRIPE_PRICE_ID_PROPERTY_BASE || process.env.STRIPE_PROPERTY_PRICE_ID || '';
     
+
+    
+
     if (!basePriceId) {
       return NextResponse.json({ 
         success: false, 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncAllPropertySheets } from '@/lib/google-sheets-tasks';
 
+
 /**
  * Cron endpoint to sync all property Google Sheets
  * Call this from Vercel Cron or external cron service

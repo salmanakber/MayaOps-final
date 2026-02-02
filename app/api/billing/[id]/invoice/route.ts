@@ -38,7 +38,7 @@ export async function GET(
     }
 
     // If invoice already exists, return it
-    if (billingRecord.invoiceUrl) {
+    if (billingRecord.invoiceUrl ) {
       return NextResponse.json({
         success: true,
         data: {

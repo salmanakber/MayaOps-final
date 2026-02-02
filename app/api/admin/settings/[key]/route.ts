@@ -116,7 +116,7 @@ export async function PATCH(
 
     // Get existing setting to check if encryption status changed
     const existing = await prisma.systemSetting.findUnique({
-      where: { key: params.key },http://192.168.0.100:3001/api/admin/settings
+      where: { key: params.key as string },
     });
 
     // Encrypt value if needed

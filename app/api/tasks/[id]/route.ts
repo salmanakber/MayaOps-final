@@ -61,6 +61,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
             latitude: true,
             longitude: true,
             propertyType: true,
+            isActive: true,
           },
         },
         assignedUser: {
@@ -253,6 +254,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
             latitude: true,
             longitude: true,
             propertyType: true,
+            isActive: true,
           },
         },
         assignedUser: {

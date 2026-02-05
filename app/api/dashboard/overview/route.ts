@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
       where: { ...where, status: { in: ["DRAFT", "PLANNED", "ASSIGNED", "SUBMITTED"] } },
     })
 
-    const totalProperties = await prisma.property.count({ where })
+    const totalProperties = await prisma.property.count({ where: { ...where, isActive: true } })
     const totalCleaners = await prisma.user.count({
       where: { ...where, role: UserRole.CLEANER, isActive: true },
     })

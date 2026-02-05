@@ -90,6 +90,7 @@ export async function GET(request: NextRequest) {
             latitude: true,
             longitude: true,
             propertyType: true,
+            isActive: true,
           },
         },
         assignedUser: {

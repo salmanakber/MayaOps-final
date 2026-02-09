@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, requireCompanyScope } from '@/lib/rbac';
 import { UserRole } from '@prisma/client';
 import prisma from '@/lib/prisma';
+import { uploadCSVToCloudinary } from '@/lib/cloudinary';
 
 export async function GET(request: NextRequest) {
   const auth = requireAuth(request);
@@ -73,10 +74,27 @@ export async function GET(request: NextRequest) {
       ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
     ].join('\n');
 
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="properties-export-${Date.now()}.csv"`,
+    // Convert CSV string to buffer
+    const csvBuffer = Buffer.from(csv, 'utf-8');
+    const fileName = `properties-export-${Date.now()}.csv`;
+
+    // Upload to Cloudinary
+    const uploadResult = await uploadCSVToCloudinary(csvBuffer, companyId, fileName);
+
+    if (!uploadResult.success || !uploadResult.url) {
+      return NextResponse.json({ 
+        success: false, 
+        message: uploadResult.error || 'Failed to upload export file to Cloudinary' 
+      }, { status: 500 });
+    }
+
+    // Return the Cloudinary URL
+    return NextResponse.json({
+      success: true,
+      data: {
+        downloadUrl: uploadResult.secureUrl,
+        fileName,
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // URL valid for 24 hours
       },
     });
   } catch (error: any) {

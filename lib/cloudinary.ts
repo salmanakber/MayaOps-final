@@ -199,6 +199,59 @@ export async function uploadPDFToCloudinary(
 }
 
 /**
+ * Upload CSV buffer to Cloudinary
+ */
+export async function uploadCSVToCloudinary(
+  csvBuffer: Buffer,
+  companyId: number,
+  fileName: string
+): Promise<CloudinaryUploadResult> {
+  try {
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+      return {
+        success: false,
+        error: 'Cloudinary credentials are not configured',
+      };
+    }
+
+    // Create a unique public ID for the CSV
+    const timestamp = Date.now();
+    const publicId = `mayaops/exports/company-${companyId}/properties-export-${timestamp}`;
+
+    // Convert buffer to base64 data URI for Cloudinary
+    const base64CSV = csvBuffer.toString('base64');
+    const dataUri = `data:text/csv;base64,${base64CSV}`;
+
+    // Upload to Cloudinary as raw file
+    const result = await cloudinary.uploader.upload(dataUri, {
+      public_id: publicId,
+      folder: `mayaops/exports/company-${companyId}`,
+      resource_type: 'raw', // CSV files are uploaded as raw files
+      overwrite: false,
+      context: {
+        companyId: companyId.toString(),
+        fileName: fileName,
+        exportedAt: new Date().toISOString(),
+        type: 'property_export',
+      },
+    });
+
+    return {
+      success: true,
+      url: result.secure_url,
+      secureUrl: result.secure_url,
+      publicId: result.public_id,
+    };
+  } catch (error) {
+    console.error('Cloudinary CSV upload error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Cloudinary CSV upload failed',
+    };
+  }
+}
+
+/**
  * Delete a file from Cloudinary by public ID
  */
 export async function deleteFromCloudinary(publicId: string): Promise<boolean> {

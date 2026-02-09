@@ -11,12 +11,15 @@ export interface TaskColumnMapping {
 }
 
 export interface TaskRow {
+  propertyId?: string; // Property ID from sheet (matches property's sheetUniqueColumn)
   title?: string;
   description?: string;
   scheduledDate?: string;
   moveInDate?: string;
+  availableDate?: string;
   assignedUserId?: number;
   status?: string;
+  action?: string; // "add" or "remove"
   [key: string]: any; // Allow other fields
 }
 
@@ -613,7 +616,400 @@ export async function syncNewRowsFromSheet(propertyId: number) {
 }
 
 /**
- * Sync all properties with enabled sheet sync
+ * Import tasks from Google Sheet for a company (company-level sync)
+ * Uses property ID column to match tasks to properties
+ */
+export async function importTasksFromCompanySheet(
+  companyId: number,
+  spreadsheetId: string,
+  sheetName: string,
+  columnMapping: TaskColumnMapping,
+  uniqueColumn?: string,
+  propertyIdColumn?: string,
+  actionColumn?: string
+) {
+  try {
+    const company = await prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new Error("Company not found");
+    }
+
+    // Fetch sheet data
+    const rows = await fetchSheetData(spreadsheetId, sheetName);
+    if (rows.length === 0) {
+      throw new Error("No data found in sheet");
+    }
+
+    const headerRow = rows[0] || [];
+    const taskRows = parseTaskRows(rows, columnMapping, headerRow);
+    
+    // Find indices for property ID and action columns
+    const propertyIdColumnIndex = propertyIdColumn ? headerRow.indexOf(propertyIdColumn) : -1;
+    const actionColumnIndex = actionColumn ? headerRow.indexOf(actionColumn) : -1;
+    const uniqueColumnIndex = uniqueColumn ? headerRow.indexOf(uniqueColumn) : -1;
+
+    const createdTasks = [];
+    const updatedTasks = [];
+    const removedTasks = [];
+    const errors = [];
+    
+    // Build fieldToIndex mapping
+    const fieldToIndex: { [field: string]: number } = {};
+    Object.entries(columnMapping).forEach(([sheetColumn, taskField]) => {
+      const index = headerRow.indexOf(sheetColumn);
+      if (index !== -1) {
+        fieldToIndex[taskField] = index;
+      }
+    });
+    
+    // Get all properties for this company with their sheetUniqueColumn values
+    const properties = await prisma.property.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true, sheetUniqueColumn: true },
+    });
+    
+    // Create a map: sheetUniqueColumn -> propertyId
+    const propertyIdMap = new Map<string, number>();
+    properties.forEach(prop => {
+      // @ts-ignore
+      if (prop.sheetUniqueColumn) {
+        // @ts-ignore
+        propertyIdMap.set(String(prop.sheetUniqueColumn), prop.id);
+      }
+    });
+    
+    // Process each task row
+    for (let taskRowIndex = 0; taskRowIndex < taskRows.length; taskRowIndex++) {
+      const taskRow = taskRows[taskRowIndex];
+      
+      try {
+        // Extract property ID from sheet
+        let sheetPropertyId: string | null = null;
+        if (propertyIdColumnIndex !== -1) {
+          const titleIndex = fieldToIndex['title'];
+          if (titleIndex !== undefined && taskRow.title) {
+            // Find the raw row that matches this taskRow
+            for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
+              const rawRow = rows[rawRowIndex];
+              if (!rawRow || rawRow.length === 0) continue;
+              
+              const rawTitle = rawRow[titleIndex];
+              if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
+                const rawPropertyId = rawRow[propertyIdColumnIndex];
+                if (rawPropertyId !== undefined && rawPropertyId !== null && rawPropertyId !== '') {
+                  sheetPropertyId = String(rawPropertyId).trim();
+                }
+                break;
+              }
+            }
+          }
+        }
+        
+        // Extract action from sheet
+        let action: string | null = null;
+        if (actionColumnIndex !== -1) {
+          const titleIndex = fieldToIndex['title'];
+          if (titleIndex !== undefined && taskRow.title) {
+            for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
+              const rawRow = rows[rawRowIndex];
+              if (!rawRow || rawRow.length === 0) continue;
+              
+              const rawTitle = rawRow[titleIndex];
+              if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
+                const rawAction = rawRow[actionColumnIndex];
+                if (rawAction !== undefined && rawAction !== null && rawAction !== '') {
+                  action = String(rawAction).trim().toLowerCase();
+                }
+                break;
+              }
+            }
+          }
+        }
+        
+        // If action is "remove", delete the task
+        if (action === 'remove') {
+          // Find task by unique identifier and property
+          let propertyId: number | null = null;
+          if (sheetPropertyId && propertyIdMap.has(sheetPropertyId)) {
+            propertyId = propertyIdMap.get(sheetPropertyId)!;
+          }
+          
+          if (propertyId && uniqueColumn && uniqueColumnIndex !== -1) {
+            const titleIndex = fieldToIndex['title'];
+            let uniqueValue: string | null = null;
+            if (titleIndex !== undefined && taskRow.title) {
+              for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
+                const rawRow = rows[rawRowIndex];
+                if (!rawRow || rawRow.length === 0) continue;
+                
+                const rawTitle = rawRow[titleIndex];
+                if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
+                  const rawValue = rawRow[uniqueColumnIndex];
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    uniqueValue = String(rawValue).trim();
+                  }
+                  break;
+                }
+              }
+            }
+            
+            if (uniqueValue) {
+              // Find and delete task
+              const taskToDelete = await prisma.task.findFirst({
+                where: {
+                  companyId,
+                  propertyId,
+                  // @ts-ignore
+                  sheetUniqueColumn: uniqueValue,
+                },
+              });
+              
+              if (taskToDelete) {
+                await prisma.task.delete({ where: { id: taskToDelete.id } });
+                removedTasks.push(taskToDelete.id);
+                console.log(`[Company Sheet Sync] Removed task ID: ${taskToDelete.id}`);
+                continue;
+              }
+            }
+          }
+        }
+        
+        // If action is "add" or not specified, add/update the task
+        if (!action || action === 'add') {
+          // Find property by property ID from sheet
+          let propertyId: number | null = null;
+          if (sheetPropertyId && propertyIdMap.has(sheetPropertyId)) {
+            propertyId = propertyIdMap.get(sheetPropertyId)!;
+          } else if (sheetPropertyId) {
+            errors.push({ row: taskRow, error: `Property ID "${sheetPropertyId}" not found in company properties` });
+            continue;
+          } else {
+            errors.push({ row: taskRow, error: 'Property ID is required' });
+            continue;
+          }
+          
+          // Get the property
+          const property = await prisma.property.findUnique({
+            where: { id: propertyId },
+            include: { company: true },
+          });
+          
+          if (!property) {
+            errors.push({ row: taskRow, error: `Property not found for ID: ${sheetPropertyId}` });
+            continue;
+          }
+          
+          // Extract unique value
+          let uniqueValue: string | null = null;
+          if (uniqueColumn && uniqueColumnIndex !== -1) {
+            const titleIndex = fieldToIndex['title'];
+            if (titleIndex !== undefined && taskRow.title) {
+              for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
+                const rawRow = rows[rawRowIndex];
+                if (!rawRow || rawRow.length === 0) continue;
+                
+                const rawTitle = rawRow[titleIndex];
+                if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
+                  const rawValue = rawRow[uniqueColumnIndex];
+                  if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+                    uniqueValue = String(rawValue).trim();
+                  }
+                  break;
+                }
+              }
+            }
+          }
+          
+          // Parse dates
+          let scheduledDate: Date | null = null;
+          if (taskRow.scheduledDate) {
+            scheduledDate = parseDate(taskRow.scheduledDate);
+            if (!scheduledDate) {
+              errors.push({ row: taskRow, error: `Invalid scheduled date format: ${taskRow.scheduledDate}` });
+              continue;
+            }
+            scheduledDate.setHours(0, 0, 0, 0);
+          }
+          
+          let moveInDate: Date | null = null;
+          if (taskRow.moveInDate) {
+            moveInDate = parseDate(taskRow.moveInDate);
+            if (moveInDate) {
+              moveInDate.setHours(0, 0, 0, 0);
+            }
+          }
+          
+          let availableDate: Date | null = null;
+          if (taskRow.availableDate) {
+            availableDate = parseDate(taskRow.availableDate);
+            if (availableDate) {
+              availableDate.setHours(0, 0, 0, 0);
+            }
+          }
+          
+          // Find assigned user
+          let assignedUserId: number | null = null;
+          if (taskRow.assignedUserEmail) {
+            const user = await prisma.user.findUnique({
+              where: { email: taskRow.assignedUserEmail },
+            });
+            if (user && user.companyId === companyId) {
+              assignedUserId = user.id;
+            }
+          }
+          
+          // Check if task exists
+          let existingTask = null;
+          if (uniqueValue && uniqueValue.trim()) {
+            existingTask = await prisma.task.findFirst({
+              where: {
+                companyId,
+                propertyId,
+                // @ts-ignore
+                sheetUniqueColumn: uniqueValue,
+              },
+            });
+          }
+          
+          const taskData: any = {
+            companyId,
+            propertyId,
+            title: taskRow.title || 'Untitled Task',
+            description: taskRow.description || null,
+            scheduledDate: scheduledDate || null,
+            status: taskRow.status || 'PLANNED',
+            assignedUserId: assignedUserId || null,
+            // @ts-ignore
+            sheetUniqueColumn: uniqueValue || null,
+          };
+          
+          if (existingTask) {
+            // Update existing task
+            await prisma.task.update({
+              where: { id: existingTask.id },
+              data: taskData,
+            });
+            updatedTasks.push(existingTask.id);
+          } else {
+            // Create new task
+            const newTask = await prisma.task.create({
+              data: taskData,
+            });
+            createdTasks.push(newTask.id);
+          }
+        }
+      } catch (error: any) {
+        errors.push({ row: taskRow, error: error.message });
+      }
+    }
+    
+    return {
+      success: true,
+      created: createdTasks.length,
+      updated: updatedTasks.length,
+      removed: removedTasks.length,
+      errors: errors.length,
+      errorDetails: errors,
+    };
+  } catch (error: any) {
+    console.error("Error importing tasks from company sheet:", error);
+    throw error;
+  }
+}
+
+/**
+ * Sync all company task sheets (company-level sync)
+ */
+export async function syncAllCompanyTaskSheets() {
+  try {
+    // Get all companies
+    const companies = await prisma.company.findMany({
+      where: { subscriptionStatus: 'active' },
+      select: { id: true, name: true },
+    });
+
+    const results = [];
+    for (const company of companies) {
+      try {
+        // Get company task sheet configuration from SystemSettings
+        const spreadsheetIdSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_id` },
+        });
+
+        if (!spreadsheetIdSetting || !spreadsheetIdSetting.value) {
+          continue; // Skip companies without task sheet configured
+        }
+
+        const spreadsheetId = spreadsheetIdSetting.value;
+        const sheetNameSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_name` },
+        });
+        const sheetName = sheetNameSetting?.value || 'Sheet1';
+
+        const mappingSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_mapping` },
+        });
+        if (!mappingSetting || !mappingSetting.value) {
+          continue; // Skip if no mapping configured
+        }
+
+        const columnMapping: TaskColumnMapping = JSON.parse(mappingSetting.value);
+        const uniqueColumnSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_unique_column` },
+        });
+        const uniqueColumn = uniqueColumnSetting?.value || undefined;
+
+        const propertyIdColumnSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_property_id_column` },
+        });
+        if (!propertyIdColumnSetting || !propertyIdColumnSetting.value) {
+          continue; // Property ID column is required
+        }
+        const propertyIdColumn = propertyIdColumnSetting.value;
+
+        const actionColumnSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_task_sheet_action_column` },
+        });
+        const actionColumn = actionColumnSetting?.value || undefined;
+
+        // Sync tasks from company sheet
+        const result = await importTasksFromCompanySheet(
+          company.id,
+          spreadsheetId,
+          sheetName,
+          columnMapping,
+          uniqueColumn,
+          propertyIdColumn,
+          actionColumn
+        );
+
+        results.push({
+          companyId: company.id,
+          companyName: company.name,
+          ...result,
+        });
+      } catch (error: any) {
+        results.push({
+          companyId: company.id,
+          companyName: company.name,
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+
+    return results;
+  } catch (error: any) {
+    console.error("Error syncing all company task sheets:", error);
+    throw error;
+  }
+}
+
+/**
+ * Sync all properties with enabled sheet sync (legacy per-property sync)
  */
 export async function syncAllPropertySheets() {
   try {

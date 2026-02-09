@@ -9,6 +9,7 @@ export interface PropertyColumnMapping {
 }
 
 export interface PropertyRow {
+  propertyId?: string;
   address?: string;
   postcode?: string;
   propertyType?: string;
@@ -54,8 +55,8 @@ export function parsePropertyRows(
       }
     });
 
-    // Only add if at least address is present
-    if (property.address) {
+    // Only add if both propertyId and address are present
+    if (property.propertyId && property.address) {
       properties.push(property);
     }
   }
@@ -110,20 +111,20 @@ export async function importPropertiesFromSheet(
       const propertyRow = propertyRows[propertyRowIndex];
       
       try {
-        // Find the corresponding raw row to extract unique identifier
+        // Extract unique identifier (property ID) from the row
         let uniqueValue: string | null = null;
         
         if (uniqueColumn && uniqueColumnIndex !== null && uniqueColumnIndex !== -1) {
-          const addressIndex = fieldToIndex['address'];
-          if (addressIndex !== undefined && propertyRow.address) {
-            // Find the raw row that matches this propertyRow
+          const propertyIdIndex = fieldToIndex['propertyId'];
+          if (propertyIdIndex !== undefined && propertyRow.propertyId) {
+            // Find the raw row that matches this propertyRow by propertyId
             for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
               const rawRow = rows[rawRowIndex];
               if (!rawRow || rawRow.length === 0) continue;
               
-              const rawAddress = rawRow[addressIndex];
-              if (rawAddress && String(rawAddress).trim() === propertyRow.address.trim()) {
-                // Found matching row - extract unique value
+              const rawPropertyId = rawRow[propertyIdIndex];
+              if (rawPropertyId && String(rawPropertyId).trim() === propertyRow.propertyId.trim()) {
+                // Found matching row - extract unique value (property ID)
                 const rawValue = rawRow[uniqueColumnIndex];
                 if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
                   uniqueValue = String(rawValue).trim();
@@ -135,11 +136,14 @@ export async function importPropertiesFromSheet(
               }
             }
           }
+        } else if (propertyRow.propertyId) {
+          // If unique column is propertyId itself, use it directly
+          uniqueValue = propertyRow.propertyId.trim();
         }
 
-        // Validate required fields
-        if (!propertyRow.address) {
-          errors.push({ row: propertyRow, error: 'Address is required' });
+        // Validate required fields - ignore rows without propertyId or address
+        if (!propertyRow.propertyId || !propertyRow.address) {
+          // Silently skip rows without propertyId or address
           continue;
         }
 
@@ -175,28 +179,28 @@ export async function importPropertiesFromSheet(
         // totalPrice = unitCount * pricePerUnit (from setting)
         const totalPrice = finalPricePerUnit * unitCount;
 
-        // Check if property already exists - using unique identifier or address + postcode
+        // Check if property already exists by unique identifier (property ID stored in sheetUniqueColumn)
+        // We need to find properties where sheetUniqueColumn matches the uniqueValue
         let existingProperty = null;
         
         if (uniqueValue && uniqueValue.trim()) {
-          // Use unique identifier if available (we'll need to add this field to Property model or use address+postcode)
-          // For now, we'll use address + postcode as unique identifier
-          existingProperty = await prisma.property.findFirst({
-            where: {
-              companyId,
-              address: propertyRow.address,
-              postcode: propertyRow.postcode || null,
-            },
+          // Find property by companyId and the unique column value
+          // We'll search for properties where sheetUniqueColumn matches
+          const allCompanyProperties = await prisma.property.findMany({
+            where: { companyId },
+            select: { id: true, sheetUniqueColumn: true },
           });
-        } else {
-          // Use address + postcode as unique identifier
-          existingProperty = await prisma.property.findFirst({
-            where: {
-              companyId,
-              address: propertyRow.address,
-              postcode: propertyRow.postcode || null,
-            },
-          });
+          
+          // Find property where sheetUniqueColumn matches uniqueValue
+          for (const prop of allCompanyProperties) {
+            // @ts-ignore - Field exists in schema but types may not be updated
+            if (prop.sheetUniqueColumn === uniqueValue) {
+              existingProperty = await prisma.property.findUnique({
+                where: { id: prop.id },
+              });
+              break;
+            }
+          }
         }
 
         const propertyData: any = {
@@ -209,11 +213,13 @@ export async function importPropertiesFromSheet(
           totalPrice,
           notes: propertyRow.notes || null,
           isActive: true,
+          // @ts-ignore - Field exists in schema but types may not be updated
+          sheetUniqueColumn: uniqueValue || null,
         };
 
         if (existingProperty) {
           // Update existing property
-          console.log(`[Property Import] Updating existing property ID: ${existingProperty.id}`);
+          console.log(`[Property Import] Updating existing property ID: ${existingProperty.id} with unique value: ${uniqueValue}`);
           await prisma.property.update({
             where: { id: existingProperty.id },
             data: propertyData,
@@ -222,7 +228,7 @@ export async function importPropertiesFromSheet(
           console.log(`[Property Import] ✓ Property updated successfully (ID: ${existingProperty.id})`);
         } else {
           // Create new property
-          console.log(`[Property Import] Creating new property: ${propertyRow.address}`);
+          console.log(`[Property Import] Creating new property: ${propertyRow.address} with unique value: ${uniqueValue}`);
           const newProperty = await prisma.property.create({
             data: propertyData,
           });

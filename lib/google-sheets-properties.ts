@@ -112,19 +112,20 @@ export async function importPropertiesFromSheet(
       
       try {
         // Extract unique identifier (property ID) from the row
+        // The uniqueColumn should be the Property ID column, so we extract it directly
         let uniqueValue: string | null = null;
         
         if (uniqueColumn && uniqueColumnIndex !== null && uniqueColumnIndex !== -1) {
-          const propertyIdIndex = fieldToIndex['propertyId'];
-          if (propertyIdIndex !== undefined && propertyRow.propertyId) {
-            // Find the raw row that matches this propertyRow by propertyId
+          // Find the raw row that matches this propertyRow by address (to get the correct row)
+          const addressIndex = fieldToIndex['address'];
+          if (addressIndex !== undefined && propertyRow.address) {
             for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
               const rawRow = rows[rawRowIndex];
               if (!rawRow || rawRow.length === 0) continue;
               
-              const rawPropertyId = rawRow[propertyIdIndex];
-              if (rawPropertyId && String(rawPropertyId).trim() === propertyRow.propertyId.trim()) {
-                // Found matching row - extract unique value (property ID)
+              const rawAddress = rawRow[addressIndex];
+              if (rawAddress && String(rawAddress).trim() === propertyRow.address.trim()) {
+                // Found matching row - extract unique value (property ID) from uniqueColumn
                 const rawValue = rawRow[uniqueColumnIndex];
                 if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
                   uniqueValue = String(rawValue).trim();
@@ -137,7 +138,7 @@ export async function importPropertiesFromSheet(
             }
           }
         } else if (propertyRow.propertyId) {
-          // If unique column is propertyId itself, use it directly
+          // If unique column is propertyId itself (mapped in columnMapping), use it directly
           uniqueValue = propertyRow.propertyId.trim();
         }
 

@@ -1,9 +1,10 @@
 // Google Sheets Sync Cron Job
 // Run this with node-cron or as a Vercel cron endpoint
 
-import { fetchSheetData, parsePropertyRows, type ColumnMapping } from './sheets';
+import { fetchSheetData } from './sheets';
 import { geocodeAddress } from './geocoding';
 import prisma from './prisma';
+import { importPropertiesFromSheet, PropertyColumnMapping } from './google-sheets-properties';
 
 export async function runSheetsSyncForAllCompanies() {
   console.log('[CRON] Starting Google Sheets sync for all companies...');
@@ -31,159 +32,60 @@ export async function runSheetsSyncForAllCompanies() {
         }
 
         const spreadsheetId = spreadsheetIdSetting.value;
-        const rangeSetting = await prisma.systemSetting.findUnique({
-          where: { key: `company_${company.id}_google_sheet_range` },
+        const sheetNameSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_google_sheet_name` },
         });
-        const range = rangeSetting?.value || 'Sheet1!A1:F10000';
+        const sheetName = sheetNameSetting?.value || 'Sheet1';
 
         // Get column mapping or use default
         const mappingSetting = await prisma.systemSetting.findUnique({
           where: { key: `company_${company.id}_google_sheet_mapping` },
         });
         
-        let columnMapping: ColumnMapping;
+        let columnMapping: PropertyColumnMapping;
         if (mappingSetting?.value) {
           try {
             columnMapping = JSON.parse(mappingSetting.value);
           } catch {
             // Fallback to default mapping
             columnMapping = {
-              'Address': 'address',
-              'Postcode': 'postcode',
-              'Latitude': 'latitude',
-              'Longitude': 'longitude',
+              'Property_ID': 'propertyId',
+              'Property Address': 'address',
+              'Post Code': 'postcode',
               'Property Type': 'propertyType',
-              'Cleaning Date': 'cleaningDate',
+              'Unit Count': 'unitCount',
               'Notes': 'notes',
             };
           }
         } else {
           // Default column mapping
           columnMapping = {
-            'Address': 'address',
-            'Postcode': 'postcode',
-            'Latitude': 'latitude',
-            'Longitude': 'longitude',
+            'Property_ID': 'propertyId',
+            'Property Address': 'address',
+            'Post Code': 'postcode',
             'Property Type': 'propertyType',
-            'Cleaning Date': 'cleaningDate',
+            'Unit Count': 'unitCount',
             'Notes': 'notes',
           };
         }
 
-        // Fetch sheet data
-        const sheetRows = await fetchSheetData(spreadsheetId, range);
-        
-        if (sheetRows.length === 0) {
-          console.log(`[CRON] ⚠ No data found in sheet for ${company.name}`);
-          results.push({
-            companyId: company.id,
-            companyName: company.name,
-            success: false,
-            error: 'No data found in sheet',
-          });
-          continue;
-        }
+        // Get unique column (Property ID column)
+        const uniqueColumnSetting = await prisma.systemSetting.findUnique({
+          where: { key: `company_${company.id}_google_sheet_unique_column` },
+        });
+        const uniqueColumn = uniqueColumnSetting?.value || 'Property_ID';
 
-        // Get headers (first row)
-        const headerRow = sheetRows[0] || [];
+        // Use the new importPropertiesFromSheet function which handles Property ID
+        const importResult = await importPropertiesFromSheet(
+          company.id,
+          spreadsheetId,
+          sheetName,
+          columnMapping,
+          uniqueColumn
+        );
 
-        // Parse and validate rows with column mapping
-        const { properties, errors } = parsePropertyRows(sheetRows, columnMapping, headerRow);
-
-        // Create or update properties in database
-        let createdCount = 0;
-        let updatedCount = 0;
-        let geocodedCount = 0;
-
-        for (const property of properties) {
-          try {
-            // Geocode if lat/lon are missing
-            let latitude = property.latitude;
-            let longitude = property.longitude;
-
-            if ((!latitude || !longitude) && property.address) {
-              const geocodeResult = await geocodeAddress(property.address, property.postcode || undefined);
-              if (geocodeResult) {
-                latitude = geocodeResult.lat;
-                longitude = geocodeResult.lng;
-                geocodedCount++;
-              }
-            }
-
-            const existingProperty = await prisma.property.findFirst({
-              where: {
-                companyId: company.id,
-                address: property.address,
-                postcode: property.postcode || null,
-              },
-            });
-
-            if (existingProperty) {
-              await prisma.property.update({
-                where: { id: existingProperty.id },
-                data: {
-                  notes: property.notes,
-                  latitude: latitude || existingProperty.latitude,
-                  longitude: longitude || existingProperty.longitude,
-                  propertyType: property.propertyType || existingProperty.propertyType,
-                },
-              });
-              updatedCount++;
-            } else {
-              await prisma.property.create({
-                data: {
-                  companyId: company.id,
-                  address: property.address,
-                  postcode: property.postcode || null,
-                  latitude: latitude || null,
-                  longitude: longitude || null,
-                  propertyType: property.propertyType || 'apartment',
-                  notes: property.notes || null,
-                  isActive: true,
-                },
-              });
-              createdCount++;
-            }
-
-            // Create task for cleaning date if provided
-            if (property.cleaningDate) {
-              const propertyRecord = await prisma.property.findFirst({
-                where: {
-                  companyId: company.id,
-                  address: property.address,
-                  postcode: property.postcode || null,
-                },
-              });
-
-              if (propertyRecord) {
-                // Check if task already exists for this property and date
-                const existingTask = await prisma.task.findFirst({
-                  where: {
-                    companyId: company.id,
-                    propertyId: propertyRecord.id,
-                    scheduledDate: new Date(property.cleaningDate),
-                    title: { startsWith: 'Cleaning:' },
-                  },
-                });
-
-                if (!existingTask) {
-                  await prisma.task.create({
-                    data: {
-                      companyId: company.id,
-                      propertyId: propertyRecord.id,
-                      title: `Cleaning: ${property.address}`,
-                      description: property.notes || null,
-                      scheduledDate: new Date(property.cleaningDate),
-                      status: 'PLANNED',
-                    },
-                  });
-                }
-              }
-            }
-          } catch (error) {
-            console.error(`[CRON] Error processing property for ${company.name}:`, error);
-          }
-        }
+        const createdCount = importResult.created || 0;
+        const updatedCount = importResult.updated || 0;
 
         // Update company property count
         const totalProperties = await prisma.property.count({ where: { companyId: company.id } });
@@ -198,12 +100,10 @@ export async function runSheetsSyncForAllCompanies() {
           success: true,
           propertiesAdded: createdCount,
           propertiesUpdated: updatedCount,
-          geocodedAddresses: geocodedCount,
-          errors: errors.length,
-          totalProcessed: properties.length,
+          errors: importResult.errors || 0,
         });
 
-        console.log(`[CRON] ✓ Synced ${company.name}: +${createdCount} properties, ~${updatedCount} updated, ${geocodedCount} geocoded, ${errors.length} errors`);
+        console.log(`[CRON] ✓ Synced ${company.name}: +${createdCount} properties, ~${updatedCount} updated, ${importResult.errors || 0} errors`);
       } catch (error: any) {
         console.error(`[CRON] ✗ Error syncing ${company.name}:`, error.message);
         results.push({

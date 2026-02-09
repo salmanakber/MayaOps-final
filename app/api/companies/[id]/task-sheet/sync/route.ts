@@ -41,8 +41,65 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       uniqueColumn,
       propertyIdColumn,
       actionColumn,
+      syncOnly, // If true, use stored configuration
     } = body;
 
+    // If syncOnly is true, use stored configuration
+    if (syncOnly) {
+      const spreadsheetIdSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_id` },
+      });
+      const sheetNameSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_name` },
+      });
+      const mappingSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_mapping` },
+      });
+      const uniqueColumnSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_unique_column` },
+      });
+      const propertyIdColumnSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_property_id_column` },
+      });
+      const actionColumnSetting = await prisma.systemSetting.findUnique({
+        where: { key: `company_${companyId}_task_sheet_action_column` },
+      });
+
+      if (!spreadsheetIdSetting || !sheetNameSetting || !mappingSetting || !propertyIdColumnSetting) {
+        return NextResponse.json({ 
+          success: false, 
+          message: 'Task sheet not configured. Please configure it first.' 
+        }, { status: 400 });
+      }
+
+      const storedSpreadsheetId = spreadsheetIdSetting.value;
+      const storedSheetName = sheetNameSetting.value;
+      const storedColumnMapping = JSON.parse(mappingSetting.value) as TaskColumnMapping;
+      const storedUniqueColumn = uniqueColumnSetting?.value || undefined;
+      const storedPropertyIdColumn = propertyIdColumnSetting.value;
+      const storedActionColumn = actionColumnSetting?.value || undefined;
+
+      // Import tasks from company sheet using stored config
+      const importResult = await importTasksFromCompanySheet(
+        companyId,
+        storedSpreadsheetId,
+        storedSheetName,
+        storedColumnMapping,
+        storedUniqueColumn,
+        storedPropertyIdColumn,
+        storedActionColumn
+      );
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          companyId,
+          importResult,
+        },
+      });
+    }
+
+    // Otherwise, use provided configuration
     if (!spreadsheetId || !sheetName || !columnMapping || !propertyIdColumn) {
       return NextResponse.json({ 
         success: false, 
@@ -65,40 +122,40 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     await prisma.systemSetting.upsert({
       where: { key: `company_${companyId}_task_sheet_id` },
       update: { value: spreadsheetId },
-      create: { key: `company_${companyId}_task_sheet_id`, value: spreadsheetId },
+      create: { key: `company_${companyId}_task_sheet_id`, value: spreadsheetId, category: 'google_sheets' },
     });
     
     await prisma.systemSetting.upsert({
       where: { key: `company_${companyId}_task_sheet_name` },
       update: { value: sheetName },
-      create: { key: `company_${companyId}_task_sheet_name`, value: sheetName },
+      create: { key: `company_${companyId}_task_sheet_name`, value: sheetName, category: 'google_sheets' },
     });
     
     await prisma.systemSetting.upsert({
       where: { key: `company_${companyId}_task_sheet_mapping` },
       update: { value: JSON.stringify(columnMapping) },
-      create: { key: `company_${companyId}_task_sheet_mapping`, value: JSON.stringify(columnMapping) },
+      create: { key: `company_${companyId}_task_sheet_mapping`, value: JSON.stringify(columnMapping), category: 'google_sheets' },
     });
     
     if (uniqueColumn) {
       await prisma.systemSetting.upsert({
         where: { key: `company_${companyId}_task_sheet_unique_column` },
         update: { value: uniqueColumn },
-        create: { key: `company_${companyId}_task_sheet_unique_column`, value: uniqueColumn },
+        create: { key: `company_${companyId}_task_sheet_unique_column`, value: uniqueColumn, category: 'google_sheets' },
       });
     }
     
     await prisma.systemSetting.upsert({
       where: { key: `company_${companyId}_task_sheet_property_id_column` },
       update: { value: propertyIdColumn },
-      create: { key: `company_${companyId}_task_sheet_property_id_column`, value: propertyIdColumn },
+      create: { key: `company_${companyId}_task_sheet_property_id_column`, value: propertyIdColumn, category: 'google_sheets' },
     });
     
     if (actionColumn) {
       await prisma.systemSetting.upsert({
         where: { key: `company_${companyId}_task_sheet_action_column` },
         update: { value: actionColumn },
-        create: { key: `company_${companyId}_task_sheet_action_column`, value: actionColumn },
+        create: { key: `company_${companyId}_task_sheet_action_column`, value: actionColumn, category: 'google_sheets' },
       });
     }
 

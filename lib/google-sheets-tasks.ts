@@ -686,29 +686,33 @@ export async function importTasksFromCompanySheet(
       const taskRow = taskRows[taskRowIndex];
       
       try {
-        // Extract property ID from sheet
+        // Extract property ID from sheet - find the raw row that matches this taskRow
         let sheetPropertyId: string | null = null;
         if (propertyIdColumnIndex !== -1) {
+          // Find the raw row index for this taskRow
           const titleIndex = fieldToIndex['title'];
           if (titleIndex !== undefined && taskRow.title) {
-            // Find the raw row that matches this taskRow
             for (let rawRowIndex = 1; rawRowIndex < rows.length; rawRowIndex++) {
               const rawRow = rows[rawRowIndex];
               if (!rawRow || rawRow.length === 0) continue;
               
               const rawTitle = rawRow[titleIndex];
               if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
-                const rawPropertyId = rawRow[propertyIdColumnIndex];
-                if (rawPropertyId !== undefined && rawPropertyId !== null && rawPropertyId !== '') {
-                  sheetPropertyId = String(rawPropertyId).trim();
+                // Found matching row - extract property ID
+                if (rawRow[propertyIdColumnIndex] !== undefined && rawRow[propertyIdColumnIndex] !== null && rawRow[propertyIdColumnIndex] !== '') {
+                  sheetPropertyId = String(rawRow[propertyIdColumnIndex]).trim();
                 }
                 break;
               }
             }
+          } else {
+            // If no title mapping, try to match by row index (less reliable)
+            // For now, we'll require title mapping for property ID extraction
+            console.warn(`[Company Sheet Sync] Cannot extract property ID: title mapping required`);
           }
         }
         
-        // Extract action from sheet
+        // Extract action from sheet - find the raw row that matches this taskRow
         let action: string | null = null;
         if (actionColumnIndex !== -1) {
           const titleIndex = fieldToIndex['title'];
@@ -719,9 +723,9 @@ export async function importTasksFromCompanySheet(
               
               const rawTitle = rawRow[titleIndex];
               if (rawTitle && String(rawTitle).trim() === taskRow.title.trim()) {
-                const rawAction = rawRow[actionColumnIndex];
-                if (rawAction !== undefined && rawAction !== null && rawAction !== '') {
-                  action = String(rawAction).trim().toLowerCase();
+                // Found matching row - extract action
+                if (rawRow[actionColumnIndex] !== undefined && rawRow[actionColumnIndex] !== null && rawRow[actionColumnIndex] !== '') {
+                  action = String(rawRow[actionColumnIndex]).trim().toLowerCase();
                 }
                 break;
               }
@@ -762,8 +766,7 @@ export async function importTasksFromCompanySheet(
                 where: {
                   companyId,
                   propertyId,
-                  // @ts-ignore
-                  sheetUniqueColumn: uniqueValue,
+                  uniqueIdentifier: uniqueValue,
                 },
               });
               
@@ -868,8 +871,7 @@ export async function importTasksFromCompanySheet(
               where: {
                 companyId,
                 propertyId,
-                // @ts-ignore
-                sheetUniqueColumn: uniqueValue,
+                uniqueIdentifier: uniqueValue,
               },
             });
           }
@@ -882,8 +884,7 @@ export async function importTasksFromCompanySheet(
             scheduledDate: scheduledDate || null,
             status: taskRow.status || 'PLANNED',
             assignedUserId: assignedUserId || null,
-            // @ts-ignore
-            sheetUniqueColumn: uniqueValue || null,
+            uniqueIdentifier: uniqueValue || null,
           };
           
           if (existingTask) {

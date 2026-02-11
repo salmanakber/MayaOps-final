@@ -8,7 +8,8 @@ import { sendTaskReminderNotification } from "@/lib/notifications"
 export async function GET(request: NextRequest) {
   // Verify cron secret for security
   const authHeader = request.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const cronSecret = process.env.CRON_SECRET || "development-secret"
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 401 })
   }
 

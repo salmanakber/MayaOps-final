@@ -65,19 +65,28 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         where: { key: `company_${companyId}_task_sheet_action_column` },
       });
 
-      if (!spreadsheetIdSetting || !sheetNameSetting || !mappingSetting || !propertyIdColumnSetting) {
+      if (
+        !spreadsheetIdSetting ||
+        !sheetNameSetting ||
+        !mappingSetting ||
+        !propertyIdColumnSetting ||
+        !uniqueColumnSetting ||
+        !uniqueColumnSetting.value ||
+        !actionColumnSetting ||
+        !actionColumnSetting.value
+      ) {
         return NextResponse.json({ 
           success: false, 
-          message: 'Task sheet not configured. Please configure it first.' 
+          message: 'Task sheet not configured. Please configure spreadsheetId, sheetName, mapping, propertyIdColumn, uniqueColumn, and actionColumn.' 
         }, { status: 400 });
       }
 
       const storedSpreadsheetId = spreadsheetIdSetting.value;
       const storedSheetName = sheetNameSetting.value;
       const storedColumnMapping = JSON.parse(mappingSetting.value) as TaskColumnMapping;
-      const storedUniqueColumn = uniqueColumnSetting?.value || undefined;
+      const storedUniqueColumn = uniqueColumnSetting.value;
       const storedPropertyIdColumn = propertyIdColumnSetting.value;
-      const storedActionColumn = actionColumnSetting?.value || undefined;
+      const storedActionColumn = actionColumnSetting.value;
 
       // Import tasks from company sheet using stored config
       const importResult = await importTasksFromCompanySheet(
@@ -100,10 +109,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // Otherwise, use provided configuration
-    if (!spreadsheetId || !sheetName || !columnMapping || !propertyIdColumn) {
+    if (!spreadsheetId || !sheetName || !columnMapping || !propertyIdColumn || !uniqueColumn || !actionColumn) {
       return NextResponse.json({ 
         success: false, 
-        message: 'spreadsheetId, sheetName, columnMapping, and propertyIdColumn are required' 
+        message: 'spreadsheetId, sheetName, columnMapping, propertyIdColumn, uniqueColumn, and actionColumn are required' 
       }, { status: 400 });
     }
 
@@ -113,9 +122,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       spreadsheetId,
       sheetName,
       columnMapping as TaskColumnMapping,
-      uniqueColumn || undefined,
+      uniqueColumn,
       propertyIdColumn,
-      actionColumn || undefined
+      actionColumn
     );
 
     // Store company-level sheet configuration in SystemSettings
@@ -137,13 +146,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       create: { key: `company_${companyId}_task_sheet_mapping`, value: JSON.stringify(columnMapping), category: 'google_sheets' },
     });
     
-    if (uniqueColumn) {
-      await prisma.systemSetting.upsert({
-        where: { key: `company_${companyId}_task_sheet_unique_column` },
-        update: { value: uniqueColumn },
-        create: { key: `company_${companyId}_task_sheet_unique_column`, value: uniqueColumn, category: 'google_sheets' },
-      });
-    }
+    await prisma.systemSetting.upsert({
+      where: { key: `company_${companyId}_task_sheet_unique_column` },
+      update: { value: uniqueColumn },
+      create: { key: `company_${companyId}_task_sheet_unique_column`, value: uniqueColumn, category: 'google_sheets' },
+    });
     
     await prisma.systemSetting.upsert({
       where: { key: `company_${companyId}_task_sheet_property_id_column` },
@@ -151,13 +158,11 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       create: { key: `company_${companyId}_task_sheet_property_id_column`, value: propertyIdColumn, category: 'google_sheets' },
     });
     
-    if (actionColumn) {
-      await prisma.systemSetting.upsert({
-        where: { key: `company_${companyId}_task_sheet_action_column` },
-        update: { value: actionColumn },
-        create: { key: `company_${companyId}_task_sheet_action_column`, value: actionColumn, category: 'google_sheets' },
-      });
-    }
+    await prisma.systemSetting.upsert({
+      where: { key: `company_${companyId}_task_sheet_action_column` },
+      update: { value: actionColumn },
+      create: { key: `company_${companyId}_task_sheet_action_column`, value: actionColumn, category: 'google_sheets' },
+    });
 
     return NextResponse.json({
       success: true,

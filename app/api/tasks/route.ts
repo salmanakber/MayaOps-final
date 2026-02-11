@@ -32,7 +32,12 @@ export async function GET(request: NextRequest) {
   const companyIdParam = searchParams.get('companyId');
 
   const where: any = {};
-  if (status && Object.values(TaskStatus).includes(status)) where.status = status;
+  if (status && Object.values(TaskStatus).includes(status)) {
+    where.status = status;
+  } else {
+    // Default behavior: do not return archived tasks unless explicitly requested via ?status=ARCHIVED
+    where.status = { not: TaskStatus.ARCHIVED };
+  }
   if (from || to) {
     where.scheduledDate = {};
     if (from) where.scheduledDate.gte = new Date(from);

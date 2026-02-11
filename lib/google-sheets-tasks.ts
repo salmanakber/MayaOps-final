@@ -451,15 +451,26 @@ export async function importTasksFromSheet(
         };
 
         if (existingTask) {
-          // Update existing task
-          console.log(`[Sheet Sync] Updating existing task ID: ${existingTask.id} with unique value: ${uniqueValue}`);
-          await prisma.task.update({
-            where: { id: existingTask.id },
-            data: taskData,
-          });
-          updatedTasks.push(existingTask.id);
-          console.log(`[Sheet Sync] ✓ Task updated successfully (ID: ${existingTask.id})`);
+          // Check if any data actually changed before updating
+          const hasChanges = 
+            existingTask.title !== taskData.title ||
+            existingTask.description !== taskData.description ||
+            (existingTask.scheduledDate?.getTime() !== taskData.scheduledDate?.getTime()) ||
+            (existingTask.moveInDate?.getTime() !== taskData.moveInDate?.getTime()) ||
+            existingTask.status !== taskData.status ||
+            existingTask.assignedUserId !== taskData.assignedUserId;
           
+          if (hasChanges) {
+            console.log(`[Sheet Sync] Updating existing task ID: ${existingTask.id} with unique value: ${uniqueValue}`);
+            await prisma.task.update({
+              where: { id: existingTask.id },
+              data: taskData,
+            });
+            updatedTasks.push(existingTask.id);
+            console.log(`[Sheet Sync] ✓ Task updated successfully (ID: ${existingTask.id})`);
+          } else {
+            console.log(`[Sheet Sync] Task unchanged (ID: ${existingTask.id}) - skipping update`);
+          }
         } else {
           // Create new task (only if unique identifier check didn't find existing task)
           if (uniqueValue && uniqueValue.trim()) {
@@ -490,38 +501,45 @@ export async function importTasksFromSheet(
       }
     }
 
-    // Send batch notifications for assigned users
-    for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
-      try {
-        const taskCount = taskIds.length;
-        const titleText = taskCount === 1 
-          ? `You have been assigned a new task: ${taskTitles[0]}`
-          : `You have been assigned ${taskCount} new tasks`;
-        const messageText = taskCount === 1
-          ? taskTitles[0]
-          : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
-        
-        await sendExpoPushNotification(
-          userId,
-          "New Tasks Assigned",
-          titleText,
-          { type: "task_assignment", taskIds, taskCount }
-        );
-        await createNotification({
-          userId,
-          title: "New Tasks Assigned",
-          message: messageText,
-          type: "task_assigned",
-          metadata: { taskIds, taskCount },
-          screenRoute: "TasksList",
-        });
-      } catch (notifError) {
-        console.error(`Error sending batch notification to user ${userId}:`, notifError);
+    // Send batch notifications for assigned users - ONLY if there are new tasks
+    if (tasksByAssignedUser.size > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${tasksByAssignedUser.size} assigned user(s) with new tasks`);
+      for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
+        try {
+          const taskCount = taskIds.length;
+          const titleText = taskCount === 1 
+            ? `You have been assigned a new task: ${taskTitles[0]}`
+            : `You have been assigned ${taskCount} new tasks`;
+          const messageText = taskCount === 1
+            ? taskTitles[0]
+            : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+          
+          await sendExpoPushNotification(
+            userId,
+            "New Tasks Assigned",
+            titleText,
+            { type: "task_assignment", taskIds, taskCount }
+          );
+          await createNotification({
+            userId,
+            title: "New Tasks Assigned",
+            message: messageText,
+            type: "task_assigned",
+            metadata: { taskIds, taskCount },
+            screenRoute: "TasksList",
+          });
+          console.log(`[Sheet Sync] ✓ Notification sent to user ${userId} for ${taskCount} new task(s)`);
+        } catch (notifError) {
+          console.error(`Error sending batch notification to user ${userId}:`, notifError);
+        }
       }
+    } else {
+      console.log(`[Sheet Sync] No new tasks for assigned users - skipping notifications`);
     }
     
-    // Send batch notification to owners/managers for unassigned tasks
+    // Send batch notification to owners/managers for unassigned tasks - ONLY if there are new tasks
     if (unassignedTasks.length > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${unassignedTasks.length} unassigned new task(s)`);
       try {
         const ownersAndManagers = await prisma.user.findMany({
           where: {
@@ -556,6 +574,7 @@ export async function importTasksFromSheet(
               metadata: { taskIds: unassignedTasks.map(t => t.taskId), taskCount },
               screenRoute: "TasksList",
             });
+            console.log(`[Sheet Sync] ✓ Notification sent to owner/manager ${user.id} for ${taskCount} new task(s)`);
           } catch (notifError) {
             console.error(`Error sending batch notification to user ${user.id}:`, notifError);
           }
@@ -563,6 +582,8 @@ export async function importTasksFromSheet(
       } catch (notifError) {
         console.error("Error sending batch notifications to owners/managers:", notifError);
       }
+    } else {
+      console.log(`[Sheet Sync] No new unassigned tasks - skipping notifications`);
     }
 
     // Update property sync timestamp
@@ -864,13 +885,29 @@ export async function importTasksFromCompanySheet(
         };
 
         if (existingTask) {
-          await prisma.task.update({ where: { id: existingTask.id }, data: taskData });
-          updatedTasks.push(existingTask.id);
+          // Check if any data actually changed before updating
+          const hasChanges = 
+            existingTask.title !== title ||
+            existingTask.description !== (description || null) ||
+            (existingTask.scheduledDate?.getTime() !== scheduledDate?.getTime()) ||
+            (existingTask.moveInDate?.getTime() !== moveInDate?.getTime()) ||
+            existingTask.status !== taskStatus ||
+            existingTask.assignedUserId !== (assignedUserId || null);
+          
+          if (hasChanges) {
+            await prisma.task.update({ where: { id: existingTask.id }, data: taskData });
+            updatedTasks.push(existingTask.id);
+            console.log(`[Sheet Sync] Task updated (ID: ${existingTask.id}) - changes detected`);
+          } else {
+            console.log(`[Sheet Sync] Task unchanged (ID: ${existingTask.id}) - skipping update`);
+          }
         } else {
+          // Only create new task and send notification if task doesn't exist
           const newTask = await prisma.task.create({ data: taskData });
           createdTasks.push(newTask.id);
+          console.log(`[Sheet Sync] New task created (ID: ${newTask.id})`);
           
-          // Track for batch notification
+          // Track for batch notification - ONLY for newly created tasks
           if (assignedUserId) {
             if (!tasksByAssignedUser.has(assignedUserId)) {
               tasksByAssignedUser.set(assignedUserId, { taskIds: [], taskTitles: [] });
@@ -887,38 +924,45 @@ export async function importTasksFromCompanySheet(
       }
     }
     
-    // Send batch notifications for assigned users
-    for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
-      try {
-        const taskCount = taskIds.length;
-        const titleText = taskCount === 1 
-          ? `You have been assigned a new task: ${taskTitles[0]}`
-          : `You have been assigned ${taskCount} new tasks`;
-        const messageText = taskCount === 1
-          ? taskTitles[0]
-          : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
-        
-        await sendExpoPushNotification(
-          userId,
-          "New Tasks Assigned",
-          titleText,
-          { type: "task_assignment", taskIds, taskCount }
-        );
-        await createNotification({
-          userId,
-          title: "New Tasks Assigned",
-          message: messageText,
-          type: "task_assigned",
-          metadata: { taskIds, taskCount },
-          screenRoute: "TasksList",
-        });
-      } catch (notifError) {
-        console.error(`Error sending batch notification to user ${userId}:`, notifError);
+    // Send batch notifications for assigned users - ONLY if there are new tasks
+    if (tasksByAssignedUser.size > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${tasksByAssignedUser.size} assigned user(s) with new tasks`);
+      for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
+        try {
+          const taskCount = taskIds.length;
+          const titleText = taskCount === 1 
+            ? `You have been assigned a new task: ${taskTitles[0]}`
+            : `You have been assigned ${taskCount} new tasks`;
+          const messageText = taskCount === 1
+            ? taskTitles[0]
+            : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+          
+          await sendExpoPushNotification(
+            userId,
+            "New Tasks Assigned",
+            titleText,
+            { type: "task_assignment", taskIds, taskCount }
+          );
+          await createNotification({
+            userId,
+            title: "New Tasks Assigned",
+            message: messageText,
+            type: "task_assigned",
+            metadata: { taskIds, taskCount },
+            screenRoute: "TasksList",
+          });
+          console.log(`[Sheet Sync] ✓ Notification sent to user ${userId} for ${taskCount} new task(s)`);
+        } catch (notifError) {
+          console.error(`Error sending batch notification to user ${userId}:`, notifError);
+        }
       }
+    } else {
+      console.log(`[Sheet Sync] No new tasks for assigned users - skipping notifications`);
     }
     
-    // Send batch notification to owners/managers for unassigned tasks
+    // Send batch notification to owners/managers for unassigned tasks - ONLY if there are new tasks
     if (unassignedTasks.length > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${unassignedTasks.length} unassigned new task(s)`);
       try {
         const ownersAndManagers = await prisma.user.findMany({
           where: {
@@ -953,6 +997,7 @@ export async function importTasksFromCompanySheet(
               metadata: { taskIds: unassignedTasks.map(t => t.taskId), taskCount },
               screenRoute: "TasksList",
             });
+            console.log(`[Sheet Sync] ✓ Notification sent to owner/manager ${user.id} for ${taskCount} new task(s)`);
           } catch (notifError) {
             console.error(`Error sending batch notification to user ${user.id}:`, notifError);
           }
@@ -960,6 +1005,8 @@ export async function importTasksFromCompanySheet(
       } catch (notifError) {
         console.error("Error sending batch notifications to owners/managers:", notifError);
       }
+    } else {
+      console.log(`[Sheet Sync] No new unassigned tasks - skipping notifications`);
     }
     
     return {

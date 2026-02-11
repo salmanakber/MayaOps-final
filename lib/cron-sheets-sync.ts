@@ -72,7 +72,7 @@ export async function runSheetsSyncForAllCompanies() {
         // Get unique column (Property ID column)
         const uniqueColumnSetting = await prisma.systemSetting.findUnique({
           where: { key: `company_${company.id}_google_sheet_unique_column` },
-        });
+            });
         const uniqueColumn = uniqueColumnSetting?.value || 'Property_ID';
 
         // Use the new importPropertiesFromSheet function which handles Property ID

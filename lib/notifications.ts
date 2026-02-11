@@ -122,15 +122,10 @@ export async function createNotification(payload: NotificationPayload & { sendEm
         screenParams: screenInfo.params,
       };
 
-      if (provider === 'fcm') {
-        // Use FCM for push notifications
-        const { sendFCMPushNotification } = await import('./fcm-push');
-        await sendFCMPushNotification(payload.userId, payload.title, payload.message, pushMetadata);
-      } else {
         // Use Expo for push notifications (default)
         const { sendExpoPushNotification } = await import('./expo-push');
         await sendExpoPushNotification(payload.userId, payload.title, payload.message, pushMetadata);
-      }
+      
     } catch (pushError) {
       console.error('Error sending push notification:', pushError);
       // Don't fail the notification creation if push fails

@@ -3,6 +3,7 @@ import prisma from "./prisma";
 import { UserRole } from "@prisma/client";
 import { sendExpoPushNotification } from "./expo-push";
 import { createNotification } from "./notifications";
+import crypto from "crypto";
 
 const sheets = google.sheets("v4");
 
@@ -615,24 +616,30 @@ export async function syncNewRowsFromSheet(propertyId: number) {
 }
 
 /**
+ * Generate unique identifier hash for a task
+ * Format: sha1(propertyId + taskTitle + propertyAddress)
+ */
+function generateTaskUniqueIdentifier(propertyId: number, taskTitle: string, propertyAddress: string): string {
+  const hashInput = `${propertyId}${taskTitle}${propertyAddress}`;
+  return crypto.createHash('sha1').update(hashInput).digest('hex');
+}
+
+/**
  * Import tasks from Google Sheet for a company (company-level sync)
  * Uses property ID column to match tasks to properties
+ * Generates unique identifier hash: sha1(propertyId + taskTitle + address)
  */
 export async function importTasksFromCompanySheet(
   companyId: number,
   spreadsheetId: string,
   sheetName: string,
   columnMapping: TaskColumnMapping,
-  uniqueColumn?: string,
   propertyIdColumn?: string,
   actionColumn?: string
 ) {
   try {
     if (!propertyIdColumn) {
       throw new Error("propertyIdColumn is required for company task sync");
-    }
-    if (!uniqueColumn) {
-      throw new Error("uniqueColumn is required for company task sync");
     }
     if (!actionColumn) {
       throw new Error("actionColumn is required for company task sync");
@@ -658,13 +665,9 @@ export async function importTasksFromCompanySheet(
     // Find indices for property ID and action columns
     const propertyIdColumnIndex = headerRow.indexOf(propertyIdColumn);
     const actionColumnIndex = headerRow.indexOf(actionColumn);
-    const uniqueColumnIndex = headerRow.indexOf(uniqueColumn);
 
     if (propertyIdColumnIndex === -1) {
       throw new Error(`Property ID column "${propertyIdColumn}" not found in sheet headers`);
-    }
-    if (uniqueColumnIndex === -1) {
-      throw new Error(`Unique Identifier column "${uniqueColumn}" not found in sheet headers`);
     }
     if (actionColumnIndex === -1) {
       throw new Error(`Action column "${actionColumn}" not found in sheet headers`);
@@ -684,19 +687,19 @@ export async function importTasksFromCompanySheet(
       }
     });
     
-    // Get all properties for this company with their sheetUniqueColumn values
+    // Get all properties for this company with their sheetUniqueColumn values and addresses
     const properties = await prisma.property.findMany({
       where: { companyId, isActive: true },
-      select: { id: true, sheetUniqueColumn: true },
+      select: { id: true, sheetUniqueColumn: true, address: true },
     });
     
-    // Create a map: sheetUniqueColumn -> propertyId
-    const propertyIdMap = new Map<string, number>();
+    // Create a map: sheetUniqueColumn -> { propertyId, address }
+    const propertyIdMap = new Map<string, { id: number; address: string }>();
     properties.forEach(prop => {
       // @ts-ignore
       if (prop.sheetUniqueColumn) {
         // @ts-ignore
-        propertyIdMap.set(String(prop.sheetUniqueColumn), prop.id);
+        propertyIdMap.set(String(prop.sheetUniqueColumn), { id: prop.id, address: prop.address || '' });
       }
     });
     
@@ -708,17 +711,12 @@ export async function importTasksFromCompanySheet(
       try {
         const sheetPropertyId = String(rawRow[propertyIdColumnIndex] ?? "").trim();
         const action = String(rawRow[actionColumnIndex] ?? "").trim().toLowerCase();
-        const uniqueValue = String(rawRow[uniqueColumnIndex] ?? "").trim();
 
         // Skip completely empty control rows
-        if (!sheetPropertyId && !action && !uniqueValue) continue;
+        if (!sheetPropertyId && !action) continue;
 
         if (!sheetPropertyId) {
           errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: "Property ID is required" });
-          continue;
-        }
-        if (!uniqueValue) {
-          errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: "Unique Identifier is required" });
           continue;
         }
         if (!action) {
@@ -730,14 +728,25 @@ export async function importTasksFromCompanySheet(
           continue;
         }
 
-        const propertyId = propertyIdMap.get(sheetPropertyId) ?? null;
-        if (!propertyId) {
+        const propertyInfo = propertyIdMap.get(sheetPropertyId) ?? null;
+        if (!propertyInfo) {
           errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `Property ID "${sheetPropertyId}" not found in company properties` });
           continue;
         }
+        const propertyId = propertyInfo.id;
+        const propertyAddress = propertyInfo.address;
 
-        // REMOVE: delete by (companyId, propertyId, uniqueIdentifier)
+        // For REMOVE action, we need the task title to generate the hash
         if (action === "remove") {
+          const title = fieldToIndex.title !== undefined ? String(rawRow[fieldToIndex.title] ?? "").trim() : "";
+          if (!title) {
+            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: "Title is required for action=remove to identify the task" });
+            continue;
+          }
+          
+          // Generate hash to find the task
+          const uniqueValue = generateTaskUniqueIdentifier(propertyId, title, propertyAddress);
+          
           const taskToDelete = await prisma.task.findFirst({
             where: { companyId, propertyId, uniqueIdentifier: uniqueValue },
           });
@@ -747,7 +756,7 @@ export async function importTasksFromCompanySheet(
             removedTasks.push(taskToDelete.id);
           } else {
             // Not fatal, but useful feedback
-            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `No task found to remove for uniqueIdentifier "${uniqueValue}"` });
+            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `No task found to remove for property "${sheetPropertyId}" with title "${title}"` });
           }
           continue;
         }
@@ -806,6 +815,9 @@ export async function importTasksFromCompanySheet(
         } else if (moveInDate && !compareDate) {
           taskStatus = "AWAITING";
         }
+
+        // Generate unique identifier hash: sha1(propertyId + taskTitle + address)
+        const uniqueValue = generateTaskUniqueIdentifier(propertyId, title, propertyAddress);
 
         // Upsert by uniqueIdentifier per property
         const existingTask = await prisma.task.findFirst({
@@ -887,13 +899,6 @@ export async function syncAllCompanyTaskSheets() {
         }
 
         const columnMapping: TaskColumnMapping = JSON.parse(mappingSetting.value);
-        const uniqueColumnSetting = await prisma.systemSetting.findUnique({
-          where: { key: `company_${company.id}_task_sheet_unique_column` },
-        });
-        if (!uniqueColumnSetting || !uniqueColumnSetting.value) {
-          continue; // Unique column is required
-        }
-        const uniqueColumn = uniqueColumnSetting.value;
 
         const propertyIdColumnSetting = await prisma.systemSetting.findUnique({
           where: { key: `company_${company.id}_task_sheet_property_id_column` },
@@ -917,7 +922,6 @@ export async function syncAllCompanyTaskSheets() {
           spreadsheetId,
           sheetName,
           columnMapping,
-          uniqueColumn,
           propertyIdColumn,
           actionColumn
         );

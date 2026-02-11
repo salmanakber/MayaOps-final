@@ -38,7 +38,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       spreadsheetId, 
       sheetName, 
       columnMapping, 
-      uniqueColumn,
       propertyIdColumn,
       actionColumn,
       syncOnly, // If true, use stored configuration
@@ -55,9 +54,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       const mappingSetting = await prisma.systemSetting.findUnique({
         where: { key: `company_${companyId}_task_sheet_mapping` },
       });
-      const uniqueColumnSetting = await prisma.systemSetting.findUnique({
-        where: { key: `company_${companyId}_task_sheet_unique_column` },
-      });
       const propertyIdColumnSetting = await prisma.systemSetting.findUnique({
         where: { key: `company_${companyId}_task_sheet_property_id_column` },
       });
@@ -70,21 +66,19 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         !sheetNameSetting ||
         !mappingSetting ||
         !propertyIdColumnSetting ||
-        !uniqueColumnSetting ||
-        !uniqueColumnSetting.value ||
+        !propertyIdColumnSetting.value ||
         !actionColumnSetting ||
         !actionColumnSetting.value
       ) {
         return NextResponse.json({ 
           success: false, 
-          message: 'Task sheet not configured. Please configure spreadsheetId, sheetName, mapping, propertyIdColumn, uniqueColumn, and actionColumn.' 
+          message: 'Task sheet not configured. Please configure spreadsheetId, sheetName, mapping, propertyIdColumn, and actionColumn.' 
         }, { status: 400 });
       }
 
       const storedSpreadsheetId = spreadsheetIdSetting.value;
       const storedSheetName = sheetNameSetting.value;
       const storedColumnMapping = JSON.parse(mappingSetting.value) as TaskColumnMapping;
-      const storedUniqueColumn = uniqueColumnSetting.value;
       const storedPropertyIdColumn = propertyIdColumnSetting.value;
       const storedActionColumn = actionColumnSetting.value;
 
@@ -94,7 +88,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
         storedSpreadsheetId,
         storedSheetName,
         storedColumnMapping,
-        storedUniqueColumn,
         storedPropertyIdColumn,
         storedActionColumn
       );
@@ -109,10 +102,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     }
 
     // Otherwise, use provided configuration
-    if (!spreadsheetId || !sheetName || !columnMapping || !propertyIdColumn || !uniqueColumn || !actionColumn) {
+    if (!spreadsheetId || !sheetName || !columnMapping || !propertyIdColumn || !actionColumn) {
       return NextResponse.json({ 
         success: false, 
-        message: 'spreadsheetId, sheetName, columnMapping, propertyIdColumn, uniqueColumn, and actionColumn are required' 
+        message: 'spreadsheetId, sheetName, columnMapping, propertyIdColumn, and actionColumn are required' 
       }, { status: 400 });
     }
 
@@ -122,7 +115,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       spreadsheetId,
       sheetName,
       columnMapping as TaskColumnMapping,
-      uniqueColumn,
       propertyIdColumn,
       actionColumn
     );
@@ -144,12 +136,6 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       where: { key: `company_${companyId}_task_sheet_mapping` },
       update: { value: JSON.stringify(columnMapping) },
       create: { key: `company_${companyId}_task_sheet_mapping`, value: JSON.stringify(columnMapping), category: 'google_sheets' },
-    });
-    
-    await prisma.systemSetting.upsert({
-      where: { key: `company_${companyId}_task_sheet_unique_column` },
-      update: { value: uniqueColumn },
-      create: { key: `company_${companyId}_task_sheet_unique_column`, value: uniqueColumn, category: 'google_sheets' },
     });
     
     await prisma.systemSetting.upsert({

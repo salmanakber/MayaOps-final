@@ -297,10 +297,9 @@ export async function importTasksFromSheet(
     const updatedTasks = [];
     const errors = [];
     
-    // Create a map to match taskRows back to original rows by title (or other unique characteristics)
-    // Since parseTaskRows filters rows, we need to match them back
-    let taskRowIndex = 0;
-
+    // Track tasks for batch notifications: userId -> { taskIds: [], taskTitles: [] }
+    const tasksByAssignedUser = new Map<number, { taskIds: number[]; taskTitles: string[] }>();
+    const unassignedTasks: { taskId: number; title: string; propertyAddress: string }[] = [];
     
     // Build fieldToIndex mapping once (reused for checking titles)
     const fieldToIndex: { [field: string]: number } = {};
@@ -474,71 +473,95 @@ export async function importTasksFromSheet(
           createdTasks.push(newTask.id);
           console.log(`[Sheet Sync] ✓ New task created (ID: ${newTask.id}) with description: ${taskData.description?.substring(0, 100)}`);
           
-
-          // Send notification to assigned user if applicable, otherwise notify owners and managers
+          // Track for batch notification
           if (assignedUserId) {
-            try {
-              await sendExpoPushNotification(
-                assignedUserId,
-                "New Task Assigned",
-                `You have been assigned a new task: ${taskData.title}`,
-                { type: "task_assignment", taskId: newTask.id }
-              );
-              await createNotification({
-                userId: assignedUserId,
-                title: "New Task Assigned",
-                message: `You have been assigned a new task: ${taskData.title}`,
-                type: "task_assigned",
-                metadata: { taskId: newTask.id },
-                screenRoute: "TaskDetail",
-                screenParams: { taskId: newTask.id },
-              });
-            } catch (notifError) {
-              console.error("Error sending notification:", notifError);
+            if (!tasksByAssignedUser.has(assignedUserId)) {
+              tasksByAssignedUser.set(assignedUserId, { taskIds: [], taskTitles: [] });
             }
+            const userTasks = tasksByAssignedUser.get(assignedUserId)!;
+            userTasks.taskIds.push(newTask.id);
+            userTasks.taskTitles.push(taskData.title);
           } else {
-            // No user assigned - notify owners and managers in the company
-            try {
-              const ownersAndManagers = await prisma.user.findMany({
-                where: {
-                  companyId: property.companyId,
-                  role: { in: [UserRole.OWNER, UserRole.MANAGER] },
-                  isActive: true,
-                },
-                select: { id: true },
-              });
-            
-
-              // Send notifications to all owners and managers
-              for (const user of ownersAndManagers) {
-                console.log('Sending notification to user', user.id);
-                try {
-                  await sendExpoPushNotification(
-                    user.id,
-                    "New Task Created",
-                    `A new task has been created: ${taskData.title} at ${property.address}`,
-                    { type: "task_created", taskId: newTask.id }
-                  );
-                  await createNotification({
-                    userId: user.id,
-                    title: "New Task Created",
-                    message: `A new task has been created: ${taskData.title} at ${property.address}`,
-                    type: "task_created",
-                    metadata: { taskId: newTask.id },
-                    screenRoute: "TaskDetail",
-                    screenParams: { taskId: newTask.id },
-                  });
-                } catch (notifError) {
-                  console.error(`Error sending notification to user ${user.id}:`, notifError);
-                }
-              }
-            } catch (notifError) {
-              console.error("Error sending notifications to owners/managers:", notifError);
-            }
+            unassignedTasks.push({ taskId: newTask.id, title: taskData.title, propertyAddress: property.address });
           }
         }
       } catch (error: any) {
         errors.push({ row: taskRow, error: error.message });
+      }
+    }
+
+    // Send batch notifications for assigned users
+    for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
+      try {
+        const taskCount = taskIds.length;
+        const titleText = taskCount === 1 
+          ? `You have been assigned a new task: ${taskTitles[0]}`
+          : `You have been assigned ${taskCount} new tasks`;
+        const messageText = taskCount === 1
+          ? taskTitles[0]
+          : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+        
+        await sendExpoPushNotification(
+          userId,
+          "New Tasks Assigned",
+          titleText,
+          { type: "task_assignment", taskIds, taskCount }
+        );
+        await createNotification({
+          userId,
+          title: "New Tasks Assigned",
+          message: messageText,
+          type: "task_assigned",
+          metadata: { taskIds, taskCount },
+          screenRoute: "TasksList",
+        });
+      } catch (notifError) {
+        console.error(`Error sending batch notification to user ${userId}:`, notifError);
+      }
+    }
+    
+    // Send batch notification to owners/managers for unassigned tasks
+    if (unassignedTasks.length > 0) {
+      try {
+        const ownersAndManagers = await prisma.user.findMany({
+          where: {
+            companyId: property.companyId,
+            role: { in: [UserRole.OWNER, UserRole.MANAGER] },
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        
+        const taskCount = unassignedTasks.length;
+        const titleText = taskCount === 1
+          ? `A new task has been created: ${unassignedTasks[0].title}`
+          : `${taskCount} new tasks have been created`;
+        const messageText = taskCount === 1
+          ? `${unassignedTasks[0].title} at ${unassignedTasks[0].propertyAddress}`
+          : unassignedTasks.slice(0, 3).map(t => t.title).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+        
+        for (const user of ownersAndManagers) {
+          try {
+            await sendExpoPushNotification(
+              user.id,
+              "New Tasks Created",
+              titleText,
+              { type: "task_created", taskIds: unassignedTasks.map(t => t.taskId), taskCount }
+            );
+            await createNotification({
+              userId: user.id,
+              title: "New Tasks Created",
+              message: messageText,
+              type: "task_created",
+              metadata: { taskIds: unassignedTasks.map(t => t.taskId), taskCount },
+              screenRoute: "TasksList",
+            });
+          } catch (notifError) {
+            console.error(`Error sending batch notification to user ${user.id}:`, notifError);
+          }
+        }
+      } catch (notifError) {
+        console.error("Error sending batch notifications to owners/managers:", notifError);
       }
     }
 
@@ -677,6 +700,10 @@ export async function importTasksFromCompanySheet(
     const updatedTasks = [];
     const removedTasks = [];
     const errors = [];
+    
+    // Track tasks for batch notifications: userId -> { taskIds: [], taskTitles: [] }
+    const tasksByAssignedUser = new Map<number, { taskIds: number[]; taskTitles: string[] }>();
+    const unassignedTasks: { taskId: number; title: string; propertyAddress: string }[] = [];
     
     // Build fieldToIndex mapping
     const fieldToIndex: { [field: string]: number } = {};
@@ -842,9 +869,96 @@ export async function importTasksFromCompanySheet(
         } else {
           const newTask = await prisma.task.create({ data: taskData });
           createdTasks.push(newTask.id);
+          
+          // Track for batch notification
+          if (assignedUserId) {
+            if (!tasksByAssignedUser.has(assignedUserId)) {
+              tasksByAssignedUser.set(assignedUserId, { taskIds: [], taskTitles: [] });
+            }
+            const userTasks = tasksByAssignedUser.get(assignedUserId)!;
+            userTasks.taskIds.push(newTask.id);
+            userTasks.taskTitles.push(title);
+          } else {
+            unassignedTasks.push({ taskId: newTask.id, title, propertyAddress });
+          }
         }
       } catch (error: any) {
         errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: error.message });
+      }
+    }
+    
+    // Send batch notifications for assigned users
+    for (const [userId, { taskIds, taskTitles }] of Array.from(tasksByAssignedUser.entries())) {
+      try {
+        const taskCount = taskIds.length;
+        const titleText = taskCount === 1 
+          ? `You have been assigned a new task: ${taskTitles[0]}`
+          : `You have been assigned ${taskCount} new tasks`;
+        const messageText = taskCount === 1
+          ? taskTitles[0]
+          : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+        
+        await sendExpoPushNotification(
+          userId,
+          "New Tasks Assigned",
+          titleText,
+          { type: "task_assignment", taskIds, taskCount }
+        );
+        await createNotification({
+          userId,
+          title: "New Tasks Assigned",
+          message: messageText,
+          type: "task_assigned",
+          metadata: { taskIds, taskCount },
+          screenRoute: "TasksList",
+        });
+      } catch (notifError) {
+        console.error(`Error sending batch notification to user ${userId}:`, notifError);
+      }
+    }
+    
+    // Send batch notification to owners/managers for unassigned tasks
+    if (unassignedTasks.length > 0) {
+      try {
+        const ownersAndManagers = await prisma.user.findMany({
+          where: {
+            companyId,
+            role: { in: [UserRole.OWNER, UserRole.MANAGER] },
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        
+        const taskCount = unassignedTasks.length;
+        const titleText = taskCount === 1
+          ? `A new task has been created: ${unassignedTasks[0].title}`
+          : `${taskCount} new tasks have been created`;
+        const messageText = taskCount === 1
+          ? `${unassignedTasks[0].title} at ${unassignedTasks[0].propertyAddress}`
+          : unassignedTasks.slice(0, 3).map(t => t.title).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+        
+        for (const user of ownersAndManagers) {
+          try {
+            await sendExpoPushNotification(
+              user.id,
+              "New Tasks Created",
+              titleText,
+              { type: "task_created", taskIds: unassignedTasks.map(t => t.taskId), taskCount }
+            );
+            await createNotification({
+              userId: user.id,
+              title: "New Tasks Created",
+              message: messageText,
+              type: "task_created",
+              metadata: { taskIds: unassignedTasks.map(t => t.taskId), taskCount },
+              screenRoute: "TasksList",
+            });
+          } catch (notifError) {
+            console.error(`Error sending batch notification to user ${user.id}:`, notifError);
+          }
+        }
+      } catch (notifError) {
+        console.error("Error sending batch notifications to owners/managers:", notifError);
       }
     }
     

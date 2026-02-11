@@ -5,6 +5,12 @@ import { syncAllCompanyTaskSheets } from '@/lib/google-sheets-tasks';
 
 /**
  * Cron endpoint to sync all company task sheets (company-level sync)
+ * Uses the latest setup with:
+ * - Company-level task sync with add/remove actions (via importTasksFromCompanySheet)
+ * - Hash-based unique identifiers (sha1(propertyId + taskTitle + address))
+ * - Batch notifications (one per user for all imported tasks)
+ * - Legacy per-property sync for backward compatibility
+ * 
  * Call this from Vercel Cron or external cron service
  */
 export async function GET(request: NextRequest) {
@@ -17,7 +23,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Sync company-level task sheets (new approach)
+    // Sync company-level task sheets (new approach with add/remove actions)
     const companyResults = await syncAllCompanyTaskSheets();
     
     // Also sync legacy per-property sheets for backward compatibility

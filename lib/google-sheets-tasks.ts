@@ -161,10 +161,25 @@ export async function fetchSheetData(spreadsheetId: string, sheetName: string = 
 }
 
 /**
- * Parse date string in multiple formats: YYYY-MM-DD or DD/MM/YYYY
+ * Parse date string in multiple formats: YYYY-MM-DD, DD/MM/YYYY, or Google Sheets serial number
  */
-function parseDate(dateString: string): Date | null {
-  if (!dateString || typeof dateString !== 'string') {
+function parseDate(dateString: string | number): Date | null {
+  if (!dateString) {
+    return null;
+  }
+
+  // Handle Google Sheets date serial numbers (days since 1899-12-30)
+  if (typeof dateString === 'number') {
+    // Google Sheets epoch is December 30, 1899
+    const epoch = new Date(1899, 11, 30);
+    const date = new Date(epoch.getTime() + dateString * 24 * 60 * 60 * 1000);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+    return null;
+  }
+
+  if (typeof dateString !== 'string') {
     return null;
   }
 
@@ -178,19 +193,57 @@ function parseDate(dateString: string): Date | null {
     }
   }
   
-  // Try DD/MM/YYYY format
+  // Try DD/MM/YYYY format (e.g., 21/12/2025) - prioritize this format
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
     const parts = trimmed.split('/');
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed in Date
+    const firstPart = parseInt(parts[0], 10);
+    const secondPart = parseInt(parts[1], 10);
     const year = parseInt(parts[2], 10);
     
-    const date = new Date(year, month, day);
-    if (!isNaN(date.getTime()) && 
-        date.getDate() === day && 
-        date.getMonth() === month && 
-        date.getFullYear() === year) {
-      return date;
+    // If first part > 12, it must be DD/MM format (e.g., 21/12/2025)
+    // Otherwise, try DD/MM first, then MM/DD as fallback
+    if (firstPart > 12) {
+      // Definitely DD/MM/YYYY
+      const day = firstPart;
+      const month = secondPart - 1; // Month is 0-indexed in Date
+      
+      if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900) {
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime()) && 
+            date.getDate() === day && 
+            date.getMonth() === month && 
+            date.getFullYear() === year) {
+          return date;
+        }
+      }
+    } else {
+      // Could be either format, try DD/MM first (prioritize DD/MM/YYYY)
+      const day = firstPart;
+      const month = secondPart - 1;
+      
+      if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900) {
+        const date = new Date(year, month, day);
+        if (!isNaN(date.getTime()) && 
+            date.getDate() === day && 
+            date.getMonth() === month && 
+            date.getFullYear() === year) {
+          return date;
+        }
+      }
+      
+      // If DD/MM didn't work, try MM/DD/YYYY as fallback
+      const monthUS = firstPart - 1;
+      const dayUS = secondPart;
+      
+      if (dayUS >= 1 && dayUS <= 31 && monthUS >= 0 && monthUS <= 11 && year >= 1900) {
+        const date = new Date(year, monthUS, dayUS);
+        if (!isNaN(date.getTime()) && 
+            date.getDate() === dayUS && 
+            date.getMonth() === monthUS && 
+            date.getFullYear() === year) {
+          return date;
+        }
+      }
     }
   }
   
@@ -352,24 +405,24 @@ export async function importTasksFromSheet(
           console.log(`[Sheet Sync] Unique column "${uniqueColumn}" configured but no value found for task: ${taskRow.title}`);
         }
 
-        // Parse scheduled date (supports YYYY-MM-DD and DD/MM/YYYY formats)
+        // Parse scheduled date (supports YYYY-MM-DD, DD/MM/YYYY formats, and Google Sheets serial numbers)
         let scheduledDate: Date | null = null;
         if (taskRow.scheduledDate) {
           scheduledDate = parseDate(taskRow.scheduledDate);
           if (!scheduledDate) {
             console.log('Invalid scheduled date format', taskRow.scheduledDate);
-            errors.push({ row: taskRow, error: `Invalid scheduled date format: ${taskRow.scheduledDate}. Expected YYYY-MM-DD or DD/MM/YYYY` });
+            errors.push({ row: taskRow, error: `Invalid scheduled date format: ${taskRow.scheduledDate}. Expected DD/MM/YYYY, YYYY-MM-DD, or Google Sheets date serial number` });
             continue;
           }
         }
 
-        // Parse move-in date (supports YYYY-MM-DD and DD/MM/YYYY formats)
+        // Parse move-in date (supports YYYY-MM-DD, DD/MM/YYYY formats, and Google Sheets serial numbers)
         let moveInDate: Date | null = null;
         if (taskRow.moveInDate) {
           moveInDate = parseDate(taskRow.moveInDate);
           if (!moveInDate) {
             console.log('Invalid move-in date format', taskRow.moveInDate);
-            errors.push({ row: taskRow, error: `Invalid move-in date format: ${taskRow.moveInDate}. Expected YYYY-MM-DD or DD/MM/YYYY` });
+            errors.push({ row: taskRow, error: `Invalid move-in date format: ${taskRow.moveInDate}. Expected DD/MM/YYYY, YYYY-MM-DD, or Google Sheets date serial number` });
             continue;
           }
         }
@@ -812,9 +865,10 @@ export async function importTasksFromCompanySheet(
         // ADD: map task fields from row using mapping
         const title = fieldToIndex.title !== undefined ? String(rawRow[fieldToIndex.title] ?? "").trim() : "";
         const description = fieldToIndex.description !== undefined ? String(rawRow[fieldToIndex.description] ?? "").trim() : "";
-        const scheduledDateStr = fieldToIndex.scheduledDate !== undefined ? String(rawRow[fieldToIndex.scheduledDate] ?? "").trim() : "";
-        const moveInDateStr = fieldToIndex.moveInDate !== undefined ? String(rawRow[fieldToIndex.moveInDate] ?? "").trim() : "";
-        const availableDateStr = fieldToIndex.availableDate !== undefined ? String(rawRow[fieldToIndex.availableDate] ?? "").trim() : "";
+        // Extract date values - preserve raw value (could be string, number, or Date object)
+        const scheduledDateRaw = fieldToIndex.scheduledDate !== undefined ? rawRow[fieldToIndex.scheduledDate] : null;
+        const moveInDateRaw = fieldToIndex.moveInDate !== undefined ? rawRow[fieldToIndex.moveInDate] : null;
+        const availableDateRaw = fieldToIndex.availableDate !== undefined ? rawRow[fieldToIndex.availableDate] : null;
         const assignedUserEmail = fieldToIndex.assignedUserEmail !== undefined ? String(rawRow[fieldToIndex.assignedUserEmail] ?? "").trim() : "";
         const statusStr = fieldToIndex.status !== undefined ? String(rawRow[fieldToIndex.status] ?? "").trim() : "";
 
@@ -823,26 +877,27 @@ export async function importTasksFromCompanySheet(
           continue;
         }
 
-        // Parse dates
+        // Parse dates - handle both string formats (DD/MM/YYYY) and Google Sheets serial numbers
         let scheduledDate: Date | null = null;
-        if (scheduledDateStr) {
-          scheduledDate = parseDate(scheduledDateStr);
+        if (scheduledDateRaw !== null && scheduledDateRaw !== undefined && scheduledDateRaw !== "") {
+          scheduledDate = parseDate(scheduledDateRaw);
           if (!scheduledDate) {
-            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `Invalid scheduled/available date format: ${scheduledDateStr}` });
+            const dateStr = typeof scheduledDateRaw === 'string' ? scheduledDateRaw : String(scheduledDateRaw);
+            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `Invalid scheduled/available date format: ${dateStr}. Expected DD/MM/YYYY or YYYY-MM-DD` });
             continue;
           }
           scheduledDate.setHours(0, 0, 0, 0);
         }
 
         let moveInDate: Date | null = null;
-        if (moveInDateStr) {
-          moveInDate = parseDate(moveInDateStr);
+        if (moveInDateRaw !== null && moveInDateRaw !== undefined && moveInDateRaw !== "") {
+          moveInDate = parseDate(moveInDateRaw);
           if (moveInDate) moveInDate.setHours(0, 0, 0, 0);
         }
 
         let availableDate: Date | null = null;
-        if (availableDateStr) {
-          availableDate = parseDate(availableDateStr);
+        if (availableDateRaw !== null && availableDateRaw !== undefined && availableDateRaw !== "") {
+          availableDate = parseDate(availableDateRaw);
           if (availableDate) availableDate.setHours(0, 0, 0, 0);
         }
 

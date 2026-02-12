@@ -88,6 +88,8 @@ export async function GET(request: NextRequest) {
       }, { status: 500 });
     }
 
+
+    console.log("uploadResult", uploadResult);
     // Return the Cloudinary URL
     return NextResponse.json({
       success: true,

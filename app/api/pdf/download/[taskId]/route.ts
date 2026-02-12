@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/rbac';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ taskId: string }> }
+  { params }: { params: { taskId: string } }
 ) {
   // 1️⃣ Authenticate user
   const auth = requireAuth(request);
@@ -13,7 +13,7 @@ export async function GET(
   }
 
   try {
-    const { taskId } = await params;
+    const { taskId } = params;
     const taskIdNum = parseInt(taskId);
     const { tokenUser } = auth;
 
@@ -41,7 +41,8 @@ export async function GET(
       return new NextResponse('PDF not found for this task', { status: 404 });
     }
 
-    const pdfUrl = task.pdfRecords[0].url.replace('.pdf', '');
+    // Use the stored Cloudinary URL as-is
+    const pdfUrl = task.pdfRecords[0].url;
 
     // 3️⃣ Authorization: check if user has access to this task
     const isOwnTask = task.assignedUserId === tokenUser.userId;
@@ -55,22 +56,8 @@ export async function GET(
       return new NextResponse('Forbidden', { status: 403 });
     }
 
-    // 4️⃣ Fetch PDF from Cloudinary
-    const cloudinaryRes = await fetch(pdfUrl);
-    if (!cloudinaryRes.ok) {
-      console.error('Failed to fetch PDF from Cloudinary:', pdfUrl);
-      return new NextResponse('Failed to fetch PDF from storage', { status: 500 });
-    }
-    const pdfBuffer = await cloudinaryRes.arrayBuffer();
-
-    // 5️⃣ Return PDF with proper filename
-    return new NextResponse(pdfBuffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="task-${taskIdNum}.pdf"`,
-        'Cache-Control': 'no-store',
-      },
-    });
+    // 4️⃣ Redirect client directly to Cloudinary URL (client downloads PDF from Cloudinary)
+    return NextResponse.redirect(pdfUrl, 302);
   } catch (error: any) {
     console.error('Error downloading task PDF:', error);
     return new NextResponse('Internal server error', { status: 500 });

@@ -49,30 +49,46 @@ export function initCronScheduler() {
   // ----------------------------
   // Task Reminders — every 10 sec
   // ----------------------------
-  cron.schedule('*/10 * * * * *', async () => {
-    await callCron('/api/cron/task-reminders', 'Task Reminders');
-  });
+  // cron.schedule('*/10 * * * * *', async () => {
+  //   await callCron('/api/cron/task-reminders', 'Task Reminders');
+  // });
 
   // ----------------------------
-  // Sheets Sync — every 1 minute
+  // Google Drive Watch Renewal — daily at 03:00
+  // Renews watch channels before they expire (channels expire after 7 days)
+  // Note: This calls POST /api/watch/renew with CRON_SECRET authentication
   // ----------------------------
-  cron.schedule('0 * * * * *', async () => {
-    await callCron('/api/cron/sheets-sync', 'Sheets Sync');
-  });
+  // cron.schedule('0 0 3 * * *', async () => {
+  //   const url = `${CRON_BASE_URL}/api/watch/renew`;
+  //   try {
+  //     const res = await fetch(url, {
+  //       method: 'POST',
+  //       headers: { Authorization: `Bearer ${CRON_SECRET}` },
+  //     });
+  //     const data = await res.json();
+  //     if (res.ok) {
+  //       console.log(`[Cron] Watch Renewal:`, data);
+  //     } else {
+  //       console.error(`[Cron] Watch Renewal HTTP ${res.status}:`, data);
+  //     }
+  //   } catch (err) {
+  //     console.error(`[Cron] Watch Renewal Error:`, err);
+  //   }
+  // });
 
   // ----------------------------
   // Sync Property Sheets — every 6 minutes
   // ----------------------------
-  cron.schedule('0 */6 * * * *', async () => {
-    await callCron('/api/cron/sync-property-sheets', 'Property Sheets Sync');
-  });
+  // cron.schedule('0 */6 * * * *', async () => {
+  //   await callCron('/api/cron/sync-property-sheets', 'Property Sheets Sync');
+  // });
 
   // ----------------------------
   // Expire Device Tokens — daily at midnight
   // ----------------------------
-  cron.schedule('0 0 0 * * *', async () => {
-    await callCron('/api/cron/expire-device-tokens', 'Expire Device Tokens');
-  });
+  // cron.schedule('0 0 0 * * *', async () => {
+  //   await callCron('/api/cron/expire-device-tokens', 'Expire Device Tokens');
+  // });
 
   // ----------------------------
   // Account Deletion Cleanup — daily at 02:00

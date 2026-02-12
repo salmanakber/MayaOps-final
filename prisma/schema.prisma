@@ -27,6 +27,16 @@ model User {
   // Enhanced: Maximum working hours per week (optional, for backward compatibility)
   maxWorkingHours Int? @map("max_working_hours") // Hours per week
 
+  // HR System: Employee Profile Fields
+  employeeId          String?  @map("employee_id") // Employee ID/Staff Number
+  bankAccountNumber  String?  @map("bank_account_number") @db.Text
+  bankName           String?  @map("bank_name")
+  bankSortCode       String?  @map("bank_sort_code")
+  taxId              String?  @map("tax_id") // National Insurance Number / Tax ID
+  salaryType         String?  @map("salary_type") // "monthly" or "hourly"
+  basicSalary        Decimal? @map("basic_salary") @db.Decimal(10, 2) // Monthly basic salary
+  defaultHourlyRate  Decimal? @map("default_hourly_rate") @db.Decimal(10, 2) // Default hourly rate if hourly employee
+
   // Relations
   company                 Company?                 @relation(fields: [companyId], references: [id])
   tasks                   Task[]                   @relation("AssignedTasks")
@@ -712,6 +722,40 @@ model PayrollRecord {
   invoiceUrl  String?   @map("invoice_url") // URL to generated invoice PDF
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  // HR System Fields
+  // Allowances
+  hraAllowance        Decimal? @map("hra_allowance") @db.Decimal(10, 2) // House Rent Allowance
+  transportAllowance Decimal? @map("transport_allowance") @db.Decimal(10, 2)
+  bonus              Decimal? @map("bonus") @db.Decimal(10, 2)
+  otherAllowances    Decimal? @map("other_allowances") @db.Decimal(10, 2)
+  
+  // Overtime
+  overtimeHours      Decimal? @map("overtime_hours") @db.Decimal(10, 2)
+  overtimeRate        Decimal? @map("overtime_rate") @db.Decimal(10, 2)
+  overtimeAmount      Decimal? @map("overtime_amount") @db.Decimal(10, 2)
+  
+  // Gross Salary (calculated: basic + allowances + overtime + bonuses)
+  grossSalary         Decimal? @map("gross_salary") @db.Decimal(10, 2)
+  
+  // Deductions
+  incomeTax           Decimal? @map("income_tax") @db.Decimal(10, 2)
+  socialSecurity      Decimal? @map("social_security") @db.Decimal(10, 2)
+  insurance           Decimal? @map("insurance") @db.Decimal(10, 2)
+  loanRepayment       Decimal? @map("loan_repayment") @db.Decimal(10, 2)
+  unpaidLeaveDeduction Decimal? @map("unpaid_leave_deduction") @db.Decimal(10, 2)
+  otherDeductions     Decimal? @map("other_deductions") @db.Decimal(10, 2)
+  totalDeductions     Decimal? @map("total_deductions") @db.Decimal(10, 2)
+  
+  // Net Salary (calculated: grossSalary - totalDeductions)
+  netSalary           Decimal? @map("net_salary") @db.Decimal(10, 2)
+  
+  // Payment Details
+  paymentDate         DateTime? @map("payment_date")
+  bankAccountNumber   String?   @map("bank_account_number") @db.Text
+  bankName            String?   @map("bank_name")
+  bankSortCode        String?   @map("bank_sort_code")
+  paymentMethod       String?   @map("payment_method") // "bank_transfer", "cash", "cheque"
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)

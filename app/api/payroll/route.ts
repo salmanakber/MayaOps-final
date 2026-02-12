@@ -94,6 +94,24 @@ export async function POST(request: NextRequest) {
       hoursWorked, 
       hourlyRate,
       fixedSalary,
+      // HR Fields
+      hraAllowance,
+      transportAllowance,
+      bonus,
+      otherAllowances,
+      overtimeHours,
+      overtimeRate,
+      incomeTax,
+      socialSecurity,
+      insurance,
+      loanRepayment,
+      unpaidLeaveDeduction,
+      otherDeductions,
+      paymentDate,
+      bankAccountNumber,
+      bankName,
+      bankSortCode,
+      paymentMethod,
     } = body;
 
     if (!userId || !periodStart || !periodEnd) {
@@ -109,20 +127,47 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
 
-    let totalAmount = 0;
+    // Calculate basic salary/amount
+    let basicAmount = 0;
     
     if (payrollType === 'fixed') {
-      if (!fixedSalary) {
-        return NextResponse.json({ success: false, message: 'fixedSalary is required for fixed payroll' }, { status: 400 });
-      }
-      totalAmount = Number(fixedSalary);
+      basicAmount = Number(fixedSalary) || 0;
     } else {
       // Hourly payroll
-      if (!hoursWorked || !hourlyRate) {
+      const finalHoursWorked = Number(hoursWorked) || 0;
+      const finalHourlyRate = Number(hourlyRate) || 0;
+      if (!finalHoursWorked || !finalHourlyRate) {
         return NextResponse.json({ success: false, message: 'hoursWorked and hourlyRate are required for hourly payroll' }, { status: 400 });
       }
-      totalAmount = Number(hoursWorked) * Number(hourlyRate);
+      basicAmount = finalHoursWorked * finalHourlyRate;
     }
+
+    // Calculate allowances
+    const hra = Number(hraAllowance) || 0;
+    const transport = Number(transportAllowance) || 0;
+    const bonusAmount = Number(bonus) || 0;
+    const otherAllow = Number(otherAllowances) || 0;
+    const totalAllowances = hra + transport + bonusAmount + otherAllow;
+
+    // Calculate overtime
+    const otHours = Number(overtimeHours) || 0;
+    const otRate = Number(overtimeRate) || (payrollType === 'hourly' ? Number(hourlyRate) * 1.5 : 0);
+    const otAmount = otHours * otRate;
+
+    // Calculate gross salary
+    const grossSalary = basicAmount + totalAllowances + otAmount;
+
+    // Calculate deductions
+    const tax = Number(incomeTax) || 0;
+    const socialSec = Number(socialSecurity) || 0;
+    const ins = Number(insurance) || 0;
+    const loan = Number(loanRepayment) || 0;
+    const unpaidLeave = Number(unpaidLeaveDeduction) || 0;
+    const otherDed = Number(otherDeductions) || 0;
+    const totalDeductions = tax + socialSec + ins + loan + unpaidLeave + otherDed;
+
+    // Calculate net salary
+    const netSalary = Math.max(0, grossSalary - totalDeductions);
 
     const payrollRecord = await prisma.payrollRecord.create({
       data: {
@@ -134,9 +179,31 @@ export async function POST(request: NextRequest) {
         hoursWorked: payrollType === 'hourly' ? Number(hoursWorked) : null,
         hourlyRate: payrollType === 'hourly' ? Number(hourlyRate) : null,
         fixedSalary: payrollType === 'fixed' ? Number(fixedSalary) : null,
-        totalAmount,
+        totalAmount: netSalary, // Store net salary as totalAmount for backward compatibility
         status: 'pending',
-      },
+        // HR Fields - using type assertion for new fields
+        ...(hra ? { hraAllowance: hra } : {}),
+        ...(transport ? { transportAllowance: transport } : {}),
+        ...(bonusAmount ? { bonus: bonusAmount } : {}),
+        ...(otherAllow ? { otherAllowances: otherAllow } : {}),
+        ...(otHours ? { overtimeHours: otHours } : {}),
+        ...(otRate ? { overtimeRate: otRate } : {}),
+        ...(otAmount ? { overtimeAmount: otAmount } : {}),
+        ...(grossSalary ? { grossSalary } : {}),
+        ...(tax ? { incomeTax: tax } : {}),
+        ...(socialSec ? { socialSecurity: socialSec } : {}),
+        ...(ins ? { insurance: ins } : {}),
+        ...(loan ? { loanRepayment: loan } : {}),
+        ...(unpaidLeave ? { unpaidLeaveDeduction: unpaidLeave } : {}),
+        ...(otherDed ? { otherDeductions: otherDed } : {}),
+        ...(totalDeductions ? { totalDeductions } : {}),
+        ...(netSalary ? { netSalary } : {}),
+        ...(paymentDate ? { paymentDate: new Date(paymentDate) } : {}),
+        ...(bankAccountNumber ? { bankAccountNumber } : {}),
+        ...(bankName ? { bankName } : {}),
+        ...(bankSortCode ? { bankSortCode } : {}),
+        ...(paymentMethod ? { paymentMethod } : {}),
+      } as any,
     });
 
     return NextResponse.json({ success: true, data: payrollRecord }, { status: 201 });

@@ -7,6 +7,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+export function getCloudinarySignature(paramsToSign: Record<string, any>) {
+  return cloudinary.utils.api_sign_request(paramsToSign, process.env.CLOUDINARY_API_SECRET);
+}
+
 export interface CloudinaryUploadResult {
   success: boolean;
   url?: string;
@@ -163,30 +167,65 @@ export async function uploadPDFToCloudinary(
       };
     }
 
-    // Create a unique public ID for the PDF with .pdf extension
-    const publicId = `mayaops/pdfs/task-${taskId}_${checksum.substring(0, 16)}`;
+    // Validate PDF buffer - PDF files start with %PDF
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      return {
+        success: false,
+        error: 'PDF buffer is empty',
+      };
+    }
 
-    // Convert buffer to base64 data URI for Cloudinary
-    const base64PDF = pdfBuffer.toString('base64');
-    const dataUri = `data:application/pdf;base64,${base64PDF}`;
+    // Check if buffer starts with PDF magic bytes
+    const pdfHeader = pdfBuffer.slice(0, 4).toString();
+    if (pdfHeader !== '%PDF') {
+      console.warn('PDF buffer does not start with PDF magic bytes. Header:', pdfHeader);
+      // Continue anyway as PDFKit might generate valid PDFs that don't start with %PDF in some cases
+    }
 
-    // Upload to Cloudinary
-    const result = await cloudinary.uploader.upload(dataUri, {
-      public_id: publicId,
-      folder: `mayaops/pdfs`,
-      resource_type: 'raw', // PDFs are uploaded as raw files
-      overwrite: false,
-      context: {
-        taskId: taskId.toString(),
-        checksum: checksum,
-        generatedAt: new Date().toISOString(),
-      },
+    // Create a unique public ID for the PDF (just filename, folder is set separately to avoid duplication)
+    const publicId = `task-${taskId}_${checksum.substring(0, 16)}.pdf`;
+
+    // Use upload_stream for better compatibility with Cloudinary (same approach as photos/avatars)
+    // Add explicit authentication and access settings to avoid "untrusted" error
+    const result = await new Promise<any>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          public_id: publicId,
+          folder: `mayaops/pdfs`, // Folder path is set here, not in public_id (avoids duplication)
+          resource_type: 'raw', // PDFs are uploaded as raw files
+          overwrite: false,
+          use_filename: false,
+          // Explicit authentication and access settings
+          type: 'upload', // Explicit upload type
+          access_mode: 'public', // Ensure public access
+          // Add context/metadata
+          context: {
+            taskId: taskId.toString(),
+            checksum: checksum,
+            generatedAt: new Date().toISOString(),
+            contentType: 'application/pdf',
+          },
+        },
+        (error, result) => {
+          if (error) {
+            console.error('Cloudinary upload_stream error:', error);
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        }
+      );
+      
+      // Write buffer to stream and end
+      uploadStream.end(pdfBuffer);
     });
 
+    // Use the secure_url as-is - Cloudinary already handles the correct URL format
+    // The .pdf extension in public_id ensures proper content-type
     return {
       success: true,
-      url: result.secure_url + '.pdf',
-      secureUrl: result.secure_url + '.pdf',
+      url: result.secure_url,
+      secureUrl: result.secure_url,
       publicId: result.public_id,
     };
   } catch (error) {
@@ -216,7 +255,7 @@ export async function uploadCSVToCloudinary(
 
     // Create a unique public ID for the CSV
     const timestamp = Date.now();
-    const publicId = `mayaops/exports/company-${companyId}/properties-export-${timestamp}`;
+    const publicId = `mayaops/exports/company-${companyId}/properties-export-${timestamp}.csv`;
 
     // Convert buffer to base64 data URI for Cloudinary
     const base64CSV = csvBuffer.toString('base64');

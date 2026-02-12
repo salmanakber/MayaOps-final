@@ -28,6 +28,19 @@ export async function POST(request: NextRequest) {
       fixedSalary, // Fixed salary amount (used when multiple users selected or single user with fixed salary)
       payrollType, // 'hourly' or 'fixed' - explicitly set by user
       hourlyRate, // Hourly rate for hourly employees
+      // HR Fields
+      hraAllowance,
+      transportAllowance,
+      bonus,
+      otherAllowances,
+      overtimeHours,
+      overtimeRate,
+      incomeTax,
+      socialSecurity,
+      insurance,
+      loanRepayment,
+      unpaidLeaveDeduction,
+      otherDeductions,
     } = body;
 
     if (!startDate || !endDate) {
@@ -168,19 +181,56 @@ export async function POST(request: NextRequest) {
           const averageWeeklyHours = totalHours / Math.max(weeksInPeriod, 1);
           
           let regularHours = totalHours;
-          let overtimeHours = 0;
+          let calculatedOvertimeHours = 0;
           
           if (averageWeeklyHours > 40) {
             const totalWeeks = Math.ceil((periodEnd.getTime() - periodStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
             const regularHoursTotal = totalWeeks * 40;
             regularHours = Math.min(totalHours, regularHoursTotal);
-            overtimeHours = Math.max(0, totalHours - regularHoursTotal);
+            calculatedOvertimeHours = Math.max(0, totalHours - regularHoursTotal);
           }
 
           const regularPay = regularHours * finalHourlyRate;
-          const overtimePay = overtimeHours * finalHourlyRate * 1.5; // 1.5x for overtime
-          totalAmount = regularPay + overtimePay;
+          const otPayFromCalc = calculatedOvertimeHours * finalHourlyRate * 1.5;
+          totalAmount = regularPay + otPayFromCalc;
         }
+
+        // Calculate allowances
+        const hra = Number(hraAllowance) || 0;
+        const transport = Number(transportAllowance) || 0;
+        const bonusAmount = Number(bonus) || 0;
+        const otherAllow = Number(otherAllowances) || 0;
+        const totalAllowances = hra + transport + bonusAmount + otherAllow;
+
+        // Calculate overtime (additional overtime beyond auto-calculated)
+        let otHours = 0;
+        let otRate = 0;
+        let otAmount = 0;
+        if (finalPayrollType === 'fixed') {
+          otHours = Number(overtimeHours) || 0;
+          otRate = Number(overtimeRate) || 0;
+          otAmount = otHours * otRate;
+        } else {
+          // For hourly, use provided overtime (if any) in addition to auto-calculated
+          otHours = Number(overtimeHours) || 0;
+          otRate = Number(overtimeRate) || (finalHourlyRate ? finalHourlyRate * 1.5 : 0);
+          otAmount = otHours * otRate;
+        }
+
+        // Calculate gross salary
+        const grossSalary = totalAmount + totalAllowances + otAmount;
+
+        // Calculate deductions
+        const tax = Number(incomeTax) || 0;
+        const socialSec = Number(socialSecurity) || 0;
+        const ins = Number(insurance) || 0;
+        const loan = Number(loanRepayment) || 0;
+        const unpaidLeave = Number(unpaidLeaveDeduction) || 0;
+        const otherDed = Number(otherDeductions) || 0;
+        const totalDeductions = tax + socialSec + ins + loan + unpaidLeave + otherDed;
+
+        // Calculate net salary
+        const netSalary = Math.max(0, grossSalary - totalDeductions);
 
         payrollRecordsToCreate.push({
           userId: employee.id,
@@ -191,8 +241,25 @@ export async function POST(request: NextRequest) {
           hoursWorked: finalPayrollType === 'hourly' ? parseFloat(totalHours.toFixed(2)) : null,
           hourlyRate: finalPayrollType === 'hourly' ? finalHourlyRate : null,
           fixedSalary: finalPayrollType === 'fixed' ? finalFixedSalary : null,
-          totalAmount: parseFloat(totalAmount.toFixed(2)),
+          totalAmount: parseFloat(netSalary.toFixed(2)), // Store net salary as totalAmount for backward compatibility
           status: 'pending',
+          // HR Fields - using spread operator for optional fields
+          ...(hra ? { hraAllowance: hra } : {}),
+          ...(transport ? { transportAllowance: transport } : {}),
+          ...(bonusAmount ? { bonus: bonusAmount } : {}),
+          ...(otherAllow ? { otherAllowances: otherAllow } : {}),
+          ...(otHours ? { overtimeHours: otHours } : {}),
+          ...(otRate ? { overtimeRate: otRate } : {}),
+          ...(otAmount ? { overtimeAmount: otAmount } : {}),
+          ...(grossSalary ? { grossSalary } : {}),
+          ...(tax ? { incomeTax: tax } : {}),
+          ...(socialSec ? { socialSecurity: socialSec } : {}),
+          ...(ins ? { insurance: ins } : {}),
+          ...(loan ? { loanRepayment: loan } : {}),
+          ...(unpaidLeave ? { unpaidLeaveDeduction: unpaidLeave } : {}),
+          ...(otherDed ? { otherDeductions: otherDed } : {}),
+          ...(totalDeductions ? { totalDeductions } : {}),
+          ...(netSalary ? { netSalary } : {}),
           // Store employee info for expense creation
           employeeFirstName: employee.firstName,
           employeeLastName: employee.lastName,
@@ -211,8 +278,9 @@ export async function POST(request: NextRequest) {
 
         try {
           // Create payroll record
+          const { employeeFirstName, employeeLastName, ...payrollDataToCreate } = payrollData as any;
           const payrollRecord = await prisma.payrollRecord.create({
-            data: payrollData,
+            data: payrollDataToCreate as any,
           });
 
           // Create corresponding expense entry for each payroll record

@@ -176,13 +176,16 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
       data: { isActive: false } 
     });
 
-    // Update company property count (sum of unitCount)
-    const allProperties = await prisma.property.findMany({
-      where: { companyId },
+    // Update company property count (sum of unitCount for active properties only)
+    const activeProperties = await prisma.property.findMany({
+      where: { 
+        companyId,
+        isActive: true, // Only count active properties
+      },
       select: { unitCount: true },
     });
     
-    const propertyCount = allProperties.reduce((sum, prop) => {
+    const propertyCount = activeProperties.reduce((sum, prop) => {
       // @ts-ignore - Field exists in schema but types may not be updated
       return sum + (prop.unitCount || 1);
     }, 0);

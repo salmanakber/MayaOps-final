@@ -76,6 +76,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Return the result - generateTaskPDF already uploaded and saved to DB
+
+    console.log("result", result);
     return NextResponse.json({
       success: true,
       data: {

@@ -150,6 +150,16 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       create: { key: `company_${companyId}_task_sheet_action_column`, value: actionColumn, category: 'google_sheets' },
     });
 
+    // Set up Google Drive watch for this sheet
+    try {
+      const { setupWatchChannel } = await import('@/lib/google-drive-watch');
+      await setupWatchChannel(spreadsheetId, companyId, 'task');
+      console.log(`✅ Set up watch channel for company ${companyId} task sheet`);
+    } catch (error: any) {
+      console.error(`⚠️ Failed to set up watch channel for company ${companyId} task sheet:`, error.message);
+      // Don't fail the request if watch setup fails
+    }
+
     return NextResponse.json({
       success: true,
       data: {

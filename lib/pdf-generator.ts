@@ -431,6 +431,8 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
       console.warn(`⚠️ PDF generation took ${duration}ms (exceeds 60s requirement)`);
     }
 
+
+
     return {
       success: true,
       pdfUrl,
@@ -450,6 +452,28 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
     };
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export function validatePhotoRequirements(photos: Photo[], minCount: number = 20): {
   valid: boolean;

@@ -94,6 +94,22 @@ export async function runSheetsSyncForAllCompanies() {
           data: { propertyCount: totalProperties },
         });
 
+        // Set up Google Drive watch for this sheet if not already set up
+        try {
+          const watchChannelSetting = await prisma.systemSetting.findUnique({
+            where: { key: `company_${company.id}_property_sheet_watch_channel` },
+          });
+          
+          if (!watchChannelSetting) {
+            const { setupWatchChannel } = await import('./google-drive-watch');
+            await setupWatchChannel(spreadsheetId, company.id, 'property');
+            console.log(`✅ Set up watch channel for company ${company.id} property sheet`);
+          }
+        } catch (error: any) {
+          console.error(`⚠️ Failed to set up watch channel for company ${company.id} property sheet:`, error.message);
+          // Don't fail the sync if watch setup fails
+        }
+
         results.push({
           companyId: company.id,
           companyName: company.name,

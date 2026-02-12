@@ -193,64 +193,66 @@ function parseDate(dateString: string | number): Date | null {
     }
   }
   
-  // Try DD/MM/YYYY format (e.g., 21/12/2025) - prioritize this format
+  // Try DD/MM/YYYY format (e.g., 21/12/2025 or 12/2/2026) - ALWAYS prioritize DD/MM format
   if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
     const parts = trimmed.split('/');
     const firstPart = parseInt(parts[0], 10);
     const secondPart = parseInt(parts[1], 10);
     const year = parseInt(parts[2], 10);
     
-    // If first part > 12, it must be DD/MM format (e.g., 21/12/2025)
-    // Otherwise, try DD/MM first, then MM/DD as fallback
-    if (firstPart > 12) {
-      // Definitely DD/MM/YYYY
-      const day = firstPart;
-      const month = secondPart - 1; // Month is 0-indexed in Date
-      
-      if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900) {
-        const date = new Date(year, month, day);
-        if (!isNaN(date.getTime()) && 
-            date.getDate() === day && 
-            date.getMonth() === month && 
-            date.getFullYear() === year) {
-          return date;
-        }
-      }
-    } else {
-      // Could be either format, try DD/MM first (prioritize DD/MM/YYYY)
-      const day = firstPart;
-      const month = secondPart - 1;
-      
-      if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900) {
-        const date = new Date(year, month, day);
-        if (!isNaN(date.getTime()) && 
-            date.getDate() === day && 
-            date.getMonth() === month && 
-            date.getFullYear() === year) {
-          return date;
-        }
-      }
-      
-      // If DD/MM didn't work, try MM/DD/YYYY as fallback
-      const monthUS = firstPart - 1;
-      const dayUS = secondPart;
-      
-      if (dayUS >= 1 && dayUS <= 31 && monthUS >= 0 && monthUS <= 11 && year >= 1900) {
-        const date = new Date(year, monthUS, dayUS);
-        if (!isNaN(date.getTime()) && 
-            date.getDate() === dayUS && 
-            date.getMonth() === monthUS && 
-            date.getFullYear() === year) {
-          return date;
+    // ALWAYS treat as DD/MM/YYYY format (day first, month second)
+    // This is the standard format used in the UK/EU
+    const day = firstPart;
+    const month = secondPart - 1; // Month is 0-indexed in Date
+    
+    // Validate ranges
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 1900 && year <= 2100) {
+    const date = new Date(year, month, day);
+      // Check if date is valid
+      if (!isNaN(date.getTime())) {
+        // Verify the date components match (handles invalid dates like 31/02)
+        if (date.getDate() === day && 
+        date.getMonth() === month && 
+        date.getFullYear() === year) {
+      return date;
+        } else {
+          // Date was adjusted (e.g., 31/02 became 03/03), so it was invalid
+          console.warn(`[Date Parse] Invalid date "${trimmed}" (DD/MM format) - date was adjusted to ${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`);
         }
       }
     }
+    
+    // If DD/MM didn't work (e.g., invalid date like 31/02/2026), try MM/DD/YYYY as fallback
+    // Only if the first attempt failed
+    const monthUS = firstPart - 1;
+    const dayUS = secondPart;
+    
+    if (dayUS >= 1 && dayUS <= 31 && monthUS >= 0 && monthUS <= 11 && year >= 1900 && year <= 2100) {
+      const dateUS = new Date(year, monthUS, dayUS);
+      if (!isNaN(dateUS.getTime()) && 
+          dateUS.getDate() === dayUS && 
+          dateUS.getMonth() === monthUS && 
+          dateUS.getFullYear() === year) {
+        // Only use MM/DD if DD/MM was invalid
+        console.warn(`[Date Parse] Interpreted "${trimmed}" as MM/DD/YYYY (${monthUS + 1}/${dayUS}/${year}) because DD/MM format was invalid`);
+        return dateUS;
+      }
+    }
+    
+    // If both formats failed, return null (don't use fallback Date parsing which can be unpredictable)
+    console.error(`[Date Parse] Failed to parse date "${trimmed}" in both DD/MM/YYYY and MM/DD/YYYY formats`);
+    return null;
   }
   
-  // Fallback to standard Date parsing
+  // Fallback to standard Date parsing (but be careful - this can be unpredictable)
+  // Only use this for formats we don't explicitly handle
   const date = new Date(trimmed);
   if (!isNaN(date.getTime())) {
+    // Additional validation to ensure it's a reasonable date
+    const parsedYear = date.getFullYear();
+    if (parsedYear >= 1900 && parsedYear <= 2100) {
     return date;
+    }
   }
   
   return null;
@@ -514,13 +516,13 @@ export async function importTasksFromSheet(
             existingTask.assignedUserId !== taskData.assignedUserId;
           
           if (hasChanges) {
-            console.log(`[Sheet Sync] Updating existing task ID: ${existingTask.id} with unique value: ${uniqueValue}`);
-            await prisma.task.update({
-              where: { id: existingTask.id },
-              data: taskData,
-            });
-            updatedTasks.push(existingTask.id);
-            console.log(`[Sheet Sync] ✓ Task updated successfully (ID: ${existingTask.id})`);
+          console.log(`[Sheet Sync] Updating existing task ID: ${existingTask.id} with unique value: ${uniqueValue}`);
+          await prisma.task.update({
+            where: { id: existingTask.id },
+            data: taskData,
+          });
+          updatedTasks.push(existingTask.id);
+          console.log(`[Sheet Sync] ✓ Task updated successfully (ID: ${existingTask.id})`);
           } else {
             console.log(`[Sheet Sync] Task unchanged (ID: ${existingTask.id}) - skipping update`);
           }
@@ -567,42 +569,42 @@ export async function importTasksFromSheet(
             ? taskTitles[0]
             : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
           
-          await sendExpoPushNotification(
+              await sendExpoPushNotification(
             userId,
             "New Tasks Assigned",
             titleText,
             { type: "task_assignment", taskIds, taskCount }
-          );
-          await createNotification({
+              );
+              await createNotification({
             userId,
             title: "New Tasks Assigned",
             message: messageText,
-            type: "task_assigned",
+                type: "task_assigned",
             metadata: { taskIds, taskCount },
             screenRoute: "TasksList",
-          });
+              });
           console.log(`[Sheet Sync] ✓ Notification sent to user ${userId} for ${taskCount} new task(s)`);
-        } catch (notifError) {
+            } catch (notifError) {
           console.error(`Error sending batch notification to user ${userId}:`, notifError);
         }
-      }
-    } else {
+            }
+          } else {
       console.log(`[Sheet Sync] No new tasks for assigned users - skipping notifications`);
     }
     
     // Send batch notification to owners/managers for unassigned tasks - ONLY if there are new tasks
     if (unassignedTasks.length > 0) {
       console.log(`[Sheet Sync] Sending notifications for ${unassignedTasks.length} unassigned new task(s)`);
-      try {
-        const ownersAndManagers = await prisma.user.findMany({
-          where: {
-            companyId: property.companyId,
-            role: { in: [UserRole.OWNER, UserRole.MANAGER] },
-            isActive: true,
-          },
-          select: { id: true },
-        });
-        
+            try {
+              const ownersAndManagers = await prisma.user.findMany({
+                where: {
+                  companyId: property.companyId,
+                  role: { in: [UserRole.OWNER, UserRole.MANAGER] },
+                  isActive: true,
+                },
+                select: { id: true },
+              });
+            
         const taskCount = unassignedTasks.length;
         const titleText = taskCount === 1
           ? `A new task has been created: ${unassignedTasks[0].title}`
@@ -611,28 +613,28 @@ export async function importTasksFromSheet(
           ? `${unassignedTasks[0].title} at ${unassignedTasks[0].propertyAddress}`
           : unassignedTasks.slice(0, 3).map(t => t.title).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
         
-        for (const user of ownersAndManagers) {
-          try {
-            await sendExpoPushNotification(
-              user.id,
+              for (const user of ownersAndManagers) {
+                try {
+                  await sendExpoPushNotification(
+                    user.id,
               "New Tasks Created",
               titleText,
               { type: "task_created", taskIds: unassignedTasks.map(t => t.taskId), taskCount }
-            );
-            await createNotification({
-              userId: user.id,
+                  );
+                  await createNotification({
+                    userId: user.id,
               title: "New Tasks Created",
               message: messageText,
-              type: "task_created",
+                    type: "task_created",
               metadata: { taskIds: unassignedTasks.map(t => t.taskId), taskCount },
               screenRoute: "TasksList",
-            });
+                  });
             console.log(`[Sheet Sync] ✓ Notification sent to owner/manager ${user.id} for ${taskCount} new task(s)`);
-          } catch (notifError) {
+                } catch (notifError) {
             console.error(`Error sending batch notification to user ${user.id}:`, notifError);
-          }
-        }
-      } catch (notifError) {
+                }
+              }
+            } catch (notifError) {
         console.error("Error sending batch notifications to owners/managers:", notifError);
       }
     } else {
@@ -714,17 +716,19 @@ export async function syncNewRowsFromSheet(propertyId: number) {
 
 /**
  * Generate unique identifier hash for a task
- * Format: sha1(propertyId + taskTitle + propertyAddress)
+ * Format: sha1(propertyId + propertyAddress)
+ * Note: Title is excluded so that updating the title doesn't create a new task
  */
-function generateTaskUniqueIdentifier(propertyId: number, taskTitle: string, propertyAddress: string): string {
-  const hashInput = `${propertyId}${taskTitle}${propertyAddress}`;
+function generateTaskUniqueIdentifier(propertyId: number, propertyAddress: string): string {
+  const hashInput = `${propertyId}${propertyAddress}`;
   return crypto.createHash('sha1').update(hashInput).digest('hex');
 }
 
 /**
  * Import tasks from Google Sheet for a company (company-level sync)
  * Uses property ID column to match tasks to properties
- * Generates unique identifier hash: sha1(propertyId + taskTitle + address)
+ * Generates unique identifier hash: sha1(propertyId + address)
+ * Note: Title is excluded from hash so updating title updates existing task instead of creating new one
  */
 export async function importTasksFromCompanySheet(
   companyId: number,
@@ -778,6 +782,10 @@ export async function importTasksFromCompanySheet(
     // Track tasks for batch notifications: userId -> { taskIds: [], taskTitles: [] }
     const tasksByAssignedUser = new Map<number, { taskIds: number[]; taskTitles: string[] }>();
     const unassignedTasks: { taskId: number; title: string; propertyAddress: string }[] = [];
+    
+    // Track updated tasks for notifications: userId -> { taskIds: [], taskTitles: [] }
+    const updatedTasksByAssignedUser = new Map<number, { taskIds: number[]; taskTitles: string[] }>();
+    const updatedUnassignedTasks: { taskId: number; title: string; propertyAddress: string }[] = [];
     
     // Build fieldToIndex mapping
     const fieldToIndex: { [field: string]: number } = {};
@@ -837,16 +845,10 @@ export async function importTasksFromCompanySheet(
         const propertyId = propertyInfo.id;
         const propertyAddress = propertyInfo.address;
 
-        // For REMOVE action, we need the task title to generate the hash
+        // For REMOVE action, generate hash from propertyId and address (no title needed)
         if (action === "remove") {
-          const title = fieldToIndex.title !== undefined ? String(rawRow[fieldToIndex.title] ?? "").trim() : "";
-          if (!title) {
-            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: "Title is required for action=remove to identify the task" });
-            continue;
-          }
-          
-          // Generate hash to find the task
-          const uniqueValue = generateTaskUniqueIdentifier(propertyId, title, propertyAddress);
+          // Generate hash to find the task (only one task per property based on hash)
+          const uniqueValue = generateTaskUniqueIdentifier(propertyId, propertyAddress);
           
           const taskToDelete = await prisma.task.findFirst({
             where: { companyId, propertyId, uniqueIdentifier: uniqueValue },
@@ -855,9 +857,10 @@ export async function importTasksFromCompanySheet(
           if (taskToDelete) {
             await prisma.task.delete({ where: { id: taskToDelete.id } });
             removedTasks.push(taskToDelete.id);
+            console.log(`[Sheet Sync] Task removed (ID: ${taskToDelete.id}) for property "${sheetPropertyId}"`);
           } else {
             // Not fatal, but useful feedback
-            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `No task found to remove for property "${sheetPropertyId}" with title "${title}"` });
+            errors.push({ row: { rawRowIndex: rawRowIndex + 1 }, error: `No task found to remove for property "${sheetPropertyId}"` });
           }
           continue;
         }
@@ -878,6 +881,7 @@ export async function importTasksFromCompanySheet(
         }
 
         // Parse dates - handle both string formats (DD/MM/YYYY) and Google Sheets serial numbers
+        // Note: If scheduledDate is not mapped, we'll try to auto-detect it from unmapped date columns
         let scheduledDate: Date | null = null;
         if (scheduledDateRaw !== null && scheduledDateRaw !== undefined && scheduledDateRaw !== "") {
           scheduledDate = parseDate(scheduledDateRaw);
@@ -887,6 +891,35 @@ export async function importTasksFromCompanySheet(
             continue;
           }
           scheduledDate.setHours(0, 0, 0, 0);
+        } else if (fieldToIndex.scheduledDate === undefined) {
+          // If scheduledDate is not mapped, try to auto-detect it by looking for date-like values in the row
+          // Skip columns that are already mapped to other fields (especially other date fields)
+          const mappedIndices = new Set(Object.values(fieldToIndex));
+          const dateFieldIndices = new Set([
+            fieldToIndex.moveInDate,
+            fieldToIndex.availableDate,
+          ].filter(idx => idx !== undefined));
+          
+          for (let colIdx = 0; colIdx < rawRow.length; colIdx++) {
+            // Skip already mapped columns and columns mapped to other date fields
+            if (mappedIndices.has(colIdx) || dateFieldIndices.has(colIdx)) continue;
+            
+            const cellValue = rawRow[colIdx];
+            if (cellValue !== null && cellValue !== undefined && cellValue !== "") {
+              const parsed = parseDate(cellValue);
+              if (parsed) {
+                // Found a date that's not mapped to any date field - use it as scheduledDate
+                scheduledDate = parsed;
+                scheduledDate.setHours(0, 0, 0, 0);
+                console.log(`[Sheet Sync] ⚠️ Auto-detected scheduledDate from column index ${colIdx} (value: ${cellValue}). Please map this column to "Scheduled Date" in your configuration.`);
+                break;
+              }
+            }
+          }
+          
+          if (!scheduledDate) {
+            console.log(`[Sheet Sync] ⚠️ scheduledDate not mapped and no unmapped date found in row ${rawRowIndex + 1}. Please map a column to "Scheduled Date" in your configuration.`);
+          }
         }
 
         let moveInDate: Date | null = null;
@@ -919,8 +952,9 @@ export async function importTasksFromCompanySheet(
           taskStatus = "AWAITING";
         }
 
-        // Generate unique identifier hash: sha1(propertyId + taskTitle + address)
-        const uniqueValue = generateTaskUniqueIdentifier(propertyId, title, propertyAddress);
+        // Generate unique identifier hash: sha1(propertyId + address)
+        // Note: Title is excluded so updating title updates existing task instead of creating new one
+        const uniqueValue = generateTaskUniqueIdentifier(propertyId, propertyAddress);
 
         // Upsert by uniqueIdentifier per property
         const existingTask = await prisma.task.findFirst({
@@ -939,6 +973,8 @@ export async function importTasksFromCompanySheet(
           uniqueIdentifier: uniqueValue,
         };
 
+        
+
         if (existingTask) {
           // Check if any data actually changed before updating
           const hasChanges = 
@@ -953,6 +989,18 @@ export async function importTasksFromCompanySheet(
             await prisma.task.update({ where: { id: existingTask.id }, data: taskData });
             updatedTasks.push(existingTask.id);
             console.log(`[Sheet Sync] Task updated (ID: ${existingTask.id}) - changes detected`);
+            
+            // Track for batch notification - ONLY for updated tasks
+            if (assignedUserId) {
+              if (!updatedTasksByAssignedUser.has(assignedUserId)) {
+                updatedTasksByAssignedUser.set(assignedUserId, { taskIds: [], taskTitles: [] });
+              }
+              const userTasks = updatedTasksByAssignedUser.get(assignedUserId)!;
+              userTasks.taskIds.push(existingTask.id);
+              userTasks.taskTitles.push(title);
+            } else {
+              updatedUnassignedTasks.push({ taskId: existingTask.id, title, propertyAddress });
+            }
           } else {
             console.log(`[Sheet Sync] Task unchanged (ID: ${existingTask.id}) - skipping update`);
           }
@@ -1062,6 +1110,87 @@ export async function importTasksFromCompanySheet(
       }
     } else {
       console.log(`[Sheet Sync] No new unassigned tasks - skipping notifications`);
+    }
+    
+    // Send batch notifications for updated tasks
+    if (updatedTasksByAssignedUser.size > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${updatedTasksByAssignedUser.size} assigned user(s) with updated tasks`);
+      for (const [userId, { taskIds, taskTitles }] of Array.from(updatedTasksByAssignedUser.entries())) {
+        try {
+          const taskCount = taskIds.length;
+          const titleText = taskCount === 1 
+            ? `Task updated: ${taskTitles[0]}`
+            : `${taskCount} tasks have been updated`;
+          const messageText = taskCount === 1
+            ? taskTitles[0]
+            : taskTitles.slice(0, 3).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+          
+          await sendExpoPushNotification(
+            userId,
+            "Tasks Updated",
+            titleText,
+            { type: "task_updated", taskIds, taskCount }
+          );
+          await createNotification({
+            userId,
+            title: "Tasks Updated",
+            message: messageText,
+            type: "task_updated",
+            metadata: { taskIds, taskCount },
+            screenRoute: "TasksList",
+          });
+          console.log(`[Sheet Sync] ✓ Notification sent to user ${userId} for ${taskCount} updated task(s)`);
+        } catch (notifError) {
+          console.error(`Error sending batch notification to user ${userId}:`, notifError);
+        }
+      }
+    }
+    
+    // Send batch notification to owners/managers for updated unassigned tasks
+    if (updatedUnassignedTasks.length > 0) {
+      console.log(`[Sheet Sync] Sending notifications for ${updatedUnassignedTasks.length} updated unassigned task(s)`);
+      try {
+        const ownersAndManagers = await prisma.user.findMany({
+          where: {
+            companyId,
+            role: { in: [UserRole.OWNER, UserRole.MANAGER] },
+            isActive: true,
+          },
+          select: { id: true },
+        });
+        
+        const taskCount = updatedUnassignedTasks.length;
+        const titleText = taskCount === 1
+          ? `Task updated: ${updatedUnassignedTasks[0].title}`
+          : `${taskCount} tasks have been updated`;
+        const messageText = taskCount === 1
+          ? `${updatedUnassignedTasks[0].title} at ${updatedUnassignedTasks[0].propertyAddress}`
+          : updatedUnassignedTasks.slice(0, 3).map(t => t.title).join(', ') + (taskCount > 3 ? ` and ${taskCount - 3} more` : '');
+        
+        for (const user of ownersAndManagers) {
+          try {
+            await sendExpoPushNotification(
+              user.id,
+              "Tasks Updated",
+              titleText,
+              { type: "task_updated", taskIds: updatedUnassignedTasks.map(t => t.taskId), taskCount }
+            );
+            await createNotification({
+              userId: user.id,
+              title: "Tasks Updated",
+              message: messageText,
+              type: "task_updated",
+              metadata: { taskIds: updatedUnassignedTasks.map(t => t.taskId), taskCount },
+              screenRoute: "TasksList",
+            });
+            console.log(`[Sheet Sync] ✓ Notification sent to owner/manager ${user.id} for ${taskCount} updated task(s)`);
+          } catch (notifError) {
+            console.error(`Error sending batch notification to user ${user.id}:`, notifError);
+          }
+        }
+      } catch (notifError) {
+        console.error("Error sending batch notifications to owners/managers:", notifError);
+      }
     }
     
     return {

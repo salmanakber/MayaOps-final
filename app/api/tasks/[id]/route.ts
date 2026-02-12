@@ -25,6 +25,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
         propertyId: true,
         assignedUserId: true,
         scheduledDate: true,
+        moveInDate: true,
         startedAt: true,
         completedAt: true,
         createdAt: true,

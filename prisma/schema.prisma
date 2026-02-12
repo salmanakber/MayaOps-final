@@ -28,32 +28,32 @@ model User {
   maxWorkingHours Int? @map("max_working_hours") // Hours per week
 
   // Relations
-  company          Company?              @relation(fields: [companyId], references: [id])
-  tasks            Task[]                @relation("AssignedTasks")
-  taskAssignments  TaskAssignment[]      @relation("TaskAssignments")
-  photos           Photo[]
-  notes            Note[]
-  auditLogs        AuditLog[]
-  locationLogs     LocationLog[]
-  notifications    Notification[]
-  availability     CleanerAvailability[]
-  leaveRequests    LeaveRequest[]        @relation("LeaveRequests")
-  leaveApprovals   LeaveRequest[]        @relation("LeaveApprovals")
-  qaScores         QAScore[]
-  sentMessages     ChatMessage[]         @relation("SentMessages")
-  receivedMessages ChatMessage[]         @relation("ReceivedMessages")
-  announcements    Announcement[]
-  payrollRecords   PayrollRecord[]
-  expenses         Expense[]             @relation("UserExpenses")
-  expenseApprovals Expense[]             @relation("ExpenseApprovals")
-  routes           Route[]
-  cleanerSkills    CleanerSkill[]        @relation("CleanerSkills")
-  preferences      UserPreferences?
-  deviceTokens     DeviceToken[]
-  SystemSetting    SystemSetting[]
+  company                 Company?                 @relation(fields: [companyId], references: [id])
+  tasks                   Task[]                   @relation("AssignedTasks")
+  taskAssignments         TaskAssignment[]         @relation("TaskAssignments")
+  photos                  Photo[]
+  notes                   Note[]
+  auditLogs               AuditLog[]
+  locationLogs            LocationLog[]
+  notifications           Notification[]
+  availability            CleanerAvailability[]
+  leaveRequests           LeaveRequest[]           @relation("LeaveRequests")
+  leaveApprovals          LeaveRequest[]           @relation("LeaveApprovals")
+  qaScores                QAScore[]
+  sentMessages            ChatMessage[]            @relation("SentMessages")
+  receivedMessages        ChatMessage[]            @relation("ReceivedMessages")
+  announcements           Announcement[]
+  payrollRecords          PayrollRecord[]
+  expenses                Expense[]                @relation("UserExpenses")
+  expenseApprovals        Expense[]                @relation("ExpenseApprovals")
+  routes                  Route[]
+  cleanerSkills           CleanerSkill[]           @relation("CleanerSkills")
+  preferences             UserPreferences?
+  deviceTokens            DeviceToken[]
+  SystemSetting           SystemSetting[]
   workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
   workingHoursApprovals   WorkingHoursSubmission[] @relation("WorkingHoursApprovals")
-
+  accountDeletionRequests AccountDeletionRequest[]
 
   @@index([email])
   @@index([companyId])
@@ -73,18 +73,17 @@ model Company {
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
   // Relations
-  users              User[]
-  properties         Property[]
-  tasks              Task[]
-  billingRecords     BillingRecord[]
-  auditLogs          AuditLog[]
-  adminConfiguration AdminConfiguration?
-  announcements      Announcement[]
-  payrollRecords     PayrollRecord[]
-  expenses           Expense[]
-  checklistTemplates ChecklistTemplate[]
-    workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
-
+  users                   User[]
+  properties              Property[]
+  tasks                   Task[]
+  billingRecords          BillingRecord[]
+  auditLogs               AuditLog[]
+  adminConfiguration      AdminConfiguration?
+  announcements           Announcement[]
+  payrollRecords          PayrollRecord[]
+  expenses                Expense[]
+  checklistTemplates      ChecklistTemplate[]
+  workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
 
   @@map("companies")
 }
@@ -149,30 +148,31 @@ model Task {
   updatedAt                DateTime   @updatedAt @map("updated_at")
 
   // Relations
-  company         Company          @relation(fields: [companyId], references: [id])
-  property        Property         @relation(fields: [propertyId], references: [id])
-  assignedUser    User?            @relation("AssignedTasks", fields: [assignedUserId], references: [id])
-  parentTask      Task?            @relation("RecurringSeries", fields: [parentTaskId], references: [id])
-  childTasks      Task[]           @relation("RecurringSeries")
-  taskAssignments TaskAssignment[] // Multiple cleaner assignments
-  photos          Photo[]
-  notes           Note[]
-  checklists      ChecklistItem[]
-  locationLogs    LocationLog[]
-  qaScores        QAScore[]
-  shareLinks      ShareLink[]
-  chatMessages    ChatMessage[]
-  expenses        Expense[]
-  clientFeedback  ClientFeedback[]
-  pdfRecords      PDFRecord[]
+  company                 Company                      @relation(fields: [companyId], references: [id])
+  property                Property                     @relation(fields: [propertyId], references: [id])
+  assignedUser            User?                        @relation("AssignedTasks", fields: [assignedUserId], references: [id])
+  parentTask              Task?                        @relation("RecurringSeries", fields: [parentTaskId], references: [id])
+  childTasks              Task[]                       @relation("RecurringSeries")
+  taskAssignments         TaskAssignment[] // Multiple cleaner assignments
+  photos                  Photo[]
+  notes                   Note[]
+  checklists              ChecklistItem[]
+  locationLogs            LocationLog[]
+  qaScores                QAScore[]
+  shareLinks              ShareLink[]
+  chatMessages            ChatMessage[]
+  expenses                Expense[]
+  clientFeedback          ClientFeedback[]
+  pdfRecords              PDFRecord[]
   workingHoursSubmissions WorkingHoursSubmissionTask[] // Working hours submissions that reference this task // Working hours submissions that reference this task
+
+  @@unique([propertyId, uniqueIdentifier]) // Ensure unique identifier is unique per property (NULL values are allowed)
   @@index([companyId])
   @@index([propertyId])
   @@index([assignedUserId])
   @@index([status])
   @@index([scheduledDate])
   @@index([parentTaskId])
-  @@unique([propertyId, uniqueIdentifier]) // Ensure unique identifier is unique per property (NULL values are allowed)
   @@map("tasks")
 }
 
@@ -190,6 +190,57 @@ model TaskAssignment {
   @@index([taskId])
   @@index([userId])
   @@map("task_assignments")
+}
+
+// Account deletion requests (for GDPR / app store data deletion compliance)
+model AccountDeletionRequest {
+  id                  Int       @id @default(autoincrement())
+  userId              Int       @map("user_id")
+  email               String
+  status              String    @default("pending") // "pending", "cancelled", "processed"
+  requestedAt         DateTime  @default(now()) @map("requested_at")
+  scheduledDeletionAt DateTime  @map("scheduled_deletion_at") // When cron should permanently delete the account
+  processedAt         DateTime? @map("processed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([status, scheduledDeletionAt])
+  @@map("account_deletion_requests")
+}
+
+// Public support tickets submitted from web support form
+model SupportTicket {
+  id          Int       @id @default(autoincrement())
+  email       String
+  name        String?
+  subject     String
+  // Original initial message is stored as the first SupportTicketMessage
+  status      String    @default("open") // "open", "in_progress", "closed"
+  publicToken String?   @unique @map("public_token") // Public token used in links so customers can view and reply without login
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  messages SupportTicketMessage[]
+
+  @@index([email])
+  @@index([status, createdAt])
+  @@map("support_tickets")
+}
+
+// Messages in a support ticket thread (both user and admin messages)
+model SupportTicketMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int      @map("ticket_id")
+  author    String   @default("user") // "user" or "admin"
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
 }
 
 // Photo evidence model
@@ -605,7 +656,7 @@ model WorkingHoursSubmission {
   id          Int       @id @default(autoincrement())
   userId      Int       @map("user_id")
   companyId   Int       @map("company_id")
-  date        DateTime  // Date for which hours are submitted
+  date        DateTime // Date for which hours are submitted
   hours       Decimal   @db.Decimal(10, 2) // Hours worked on this date
   description String?   @db.Text // Optional description/notes
   status      String    @default("pending") @map("status") // pending, approved, rejected
@@ -614,10 +665,11 @@ model WorkingHoursSubmission {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  user    User    @relation("WorkingHoursSubmissions", fields: [userId], references: [id], onDelete: Cascade)
-  company Company @relation("WorkingHoursSubmissions", fields: [companyId], references: [id], onDelete: Cascade)
-  approver User?  @relation("WorkingHoursApprovals", fields: [approvedBy], references: [id])
-  tasks   WorkingHoursSubmissionTask[]
+  user     User                         @relation("WorkingHoursSubmissions", fields: [userId], references: [id], onDelete: Cascade)
+  company  Company                      @relation("WorkingHoursSubmissions", fields: [companyId], references: [id], onDelete: Cascade)
+  approver User?                        @relation("WorkingHoursApprovals", fields: [approvedBy], references: [id])
+  tasks    WorkingHoursSubmissionTask[]
+
   @@unique([userId, date]) // One submission per user per date
   @@index([userId])
   @@index([companyId])
@@ -628,14 +680,14 @@ model WorkingHoursSubmission {
 
 // Junction table for WorkingHoursSubmission and Task
 model WorkingHoursSubmissionTask {
-  id                      Int       @id @default(autoincrement())
+  id                       Int      @id @default(autoincrement())
   workingHoursSubmissionId Int      @map("working_hours_submission_id")
-  taskId                  Int       @map("task_id")
-  hours                   Decimal?  @db.Decimal(10, 2) // Hours allocated to this specific task (optional)
-  createdAt               DateTime  @default(now()) @map("created_at")
+  taskId                   Int      @map("task_id")
+  hours                    Decimal? @db.Decimal(10, 2) // Hours allocated to this specific task (optional)
+  createdAt                DateTime @default(now()) @map("created_at")
 
   workingHoursSubmission WorkingHoursSubmission @relation(fields: [workingHoursSubmissionId], references: [id], onDelete: Cascade)
-  task                    Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task                   Task                   @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([workingHoursSubmissionId, taskId]) // One task per submission (but multiple tasks per submission)
   @@index([workingHoursSubmissionId])
@@ -817,4 +869,3 @@ model SystemSetting {
   @@index([key])
   @@map("system_settings")
 }
-

@@ -74,5 +74,12 @@ export function initCronScheduler() {
     await callCron('/api/cron/expire-device-tokens', 'Expire Device Tokens');
   });
 
+  // ----------------------------
+  // Account Deletion Cleanup — daily at 02:00
+  // ----------------------------
+  cron.schedule('0 0 2 * * *', async () => {
+    await callCron('/api/cron/account-deletion', 'Account Deletion Cleanup');
+  });
+
   console.log('✅ Cron Scheduler Initialized');
 }

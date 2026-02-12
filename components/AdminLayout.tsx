@@ -21,7 +21,9 @@ import {
   X,
   Search,
   ChevronDown,
-  Bell
+  Bell,
+  Ticket,
+  UserMinus
 } from "lucide-react"
 import CompanySelector from "./CompanySelector"
 
@@ -54,6 +56,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     }
     return null
   })
+  const [openTicketCount, setOpenTicketCount] = useState<number>(0)
 
   const handleCompanyChange = (companyId: number | null) => {
     setSelectedCompanyId(companyId)
@@ -67,7 +70,26 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   // --- Auth Logic ---
   useEffect(() => {
     loadUser()
+    loadOpenTicketCount()
   }, [])
+
+  const loadOpenTicketCount = async () => {
+    try {
+      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      if (!token) return
+
+      const response = await axios.get("/api/admin/support-tickets/unread-count", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.data?.success) {
+        setOpenTicketCount(response.data.data?.count || 0)
+      }
+    } catch (error) {
+      // Silent fail; badge is a UX enhancement only
+      console.error("Error loading support ticket count:", error)
+    }
+  }
 
   const loadUser = async () => {
     try {
@@ -112,6 +134,8 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Issues", href: "/admin/issues", icon: AlertCircle },
     { name: "Sheets Sync", href: "/admin/sheets-sync", icon: Database },
     { name: "User Management", href: "/admin/users", icon: Users },
+    { name: "Support Tickets", href: "/admin/support-tickets", icon: Ticket },
+    { name: "Account Deletion", href: "/admin/account-deletion", icon: UserMinus },
     { name: "Notifications", href: "/admin/notifications", icon: Bell },
     { name: "Reporting", href: "/admin/reporting", icon: BarChart3 },
     { name: "Settings", href: "/admin/settings", icon: Settings },
@@ -216,13 +240,20 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
-                <item.icon
-                  size={18}
-                  className={`transition-colors ${
-                    isActive ? "text-indigo-600" : "text-gray-400 group-hover:text-gray-600"
-                  }`}
-                />
-                {item.name}
+                <div className="relative flex items-center gap-3">
+                  <item.icon
+                    size={18}
+                    className={`transition-colors ${
+                      isActive ? "text-indigo-600" : "text-gray-400 group-hover:text-gray-600"
+                    }`}
+                  />
+                  <span>{item.name}</span>
+                  {item.name === "Support Tickets" && openTicketCount > 0 && (
+                    <span className="ml-auto inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold px-1.5 py-0.5 min-w-[18px]">
+                      {openTicketCount > 99 ? "99+" : openTicketCount}
+                    </span>
+                  )}
+                </div>
               </Link>
             )
           })}

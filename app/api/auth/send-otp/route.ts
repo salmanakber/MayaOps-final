@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
       where: { email },
     });
 
+    console.log("user", email);
     if (!user) {
       return NextResponse.json(
         { success: false, message: 'User not found' },

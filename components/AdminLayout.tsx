@@ -23,7 +23,8 @@ import {
   ChevronDown,
   Bell,
   Ticket,
-  UserMinus
+  UserMinus,
+  Code
 } from "lucide-react"
 import CompanySelector from "./CompanySelector"
 
@@ -140,6 +141,15 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Reporting", href: "/admin/reporting", icon: BarChart3 },
     { name: "Settings", href: "/admin/settings", icon: Settings },
   ]
+  
+  // Add Developer Tools for developers, owners, and super admins
+  if (user?.role === "DEVELOPER" || user?.role === "OWNER" || user?.role === "SUPER_ADMIN") {
+    baseNavigation.push({
+      name: "Developer Tools",
+      href: "/admin/developer",
+      icon: Code,
+    })
+  }
 
   // Filter navigation based on user role
   let navigation = [...baseNavigation]

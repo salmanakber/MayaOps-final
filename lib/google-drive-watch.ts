@@ -42,7 +42,8 @@ function initializeDriveClient() {
   return google.auth.getClient({
     credentials,
     scopes: [
-      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/drive.file",
       "https://www.googleapis.com/auth/spreadsheets.readonly",
     ],
   });
@@ -52,16 +53,19 @@ function initializeDriveClient() {
  * Get webhook URL for receiving notifications
  */
 function getWebhookUrl(): string {
-  // Priority: NEXT_PUBLIC_API_URL > CRON_BASE_URL > fallback
-  const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.CRON_BASE_URL || 'http://127.0.0.1:3000';
+  // Priority: NEXT_PUBLIC_API_URL > CRON_BASE_URL > hardcoded ngrok > fallback
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL 
+    || process.env.CRON_BASE_URL 
+    || 'https://b38e-119-157-64-230.ngrok-free.app'  // Fallback to your ngrok URL
+    || 'http://127.0.0.1:3000';
   
-    // Warn if using localhost (won't work for Google webhooks)
-    if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
-      console.error(`[Watch] ❌ ERROR: Using localhost URL (${baseUrl}) - Google cannot reach this!`);
-      console.error(`[Watch] ❌ Set NEXT_PUBLIC_API_URL or CRON_BASE_URL to your public URL (e.g., ngrok URL)`);
-      console.error(`[Watch] ❌ Watch channels created with localhost will not work!`);
-      throw new Error(`Cannot create watch channel with localhost URL. Set NEXT_PUBLIC_API_URL to your public URL (e.g., ngrok URL)`);
-    }
+  // Warn if using localhost (won't work for Google webhooks)
+  if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+    console.error(`[Watch] ❌ ERROR: Using localhost URL (${baseUrl}) - Google cannot reach this!`);
+    console.error(`[Watch] ❌ Set NEXT_PUBLIC_API_URL or CRON_BASE_URL to your public URL (e.g., ngrok URL)`);
+    console.error(`[Watch] ❌ Watch channels created with localhost will not work!`);
+    throw new Error(`Cannot create watch channel with localhost URL. Set NEXT_PUBLIC_API_URL to your public URL (e.g., ngrok URL)`);
+  }
   
   // Ensure URL doesn't have trailing slash
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
@@ -144,6 +148,14 @@ export async function setupWatchChannel(
     });
 
     console.log(`✅ Set up watch channel for company ${companyId}, ${sheetType} sheet: ${fileId}`);
+    console.log(`✅ Watch channel details:`, {
+      channelId: watchChannel.id,
+      resourceId: watchChannel.resourceId,
+      expiration: new Date(watchChannel.expiration).toISOString(),
+      webhookUrl: webhookUrl,
+    });
+    console.log(`✅ IMPORTANT: Google will send notifications to: ${webhookUrl}`);
+    console.log(`✅ If you see 'localhost' in webhook logs, it's just Next.js internal URL - Google is using the correct public URL above`);
     return watchChannel;
   } catch (error: any) {
     console.error(`❌ Error setting up watch channel for file ${fileId}:`, error.message);

@@ -1,12 +1,17 @@
 /**
  * Google Drive Webhook Endpoint
  * Receives push notifications when Google Sheets are modified
+ * 
+ * IMPORTANT: Google Drive sends notification metadata in HTTP HEADERS, not the request body!
+ * Key headers:
+ * - X-Goog-Channel-ID: The channel ID we set when creating the watch
+ * - X-Goog-Resource-State: "sync" (initial) or "change" (file modified)
+ * - X-Goog-Resource-ID: The resource ID
+ * - X-Goog-Resource-URI: The resource URI
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { handleSheetsSyncCron } from '@/lib/cron-sheets-sync';
-import { syncAllCompanyTaskSheets } from '@/lib/google-sheets-tasks';
 
 /**
  * POST /api/webhooks/google-drive
@@ -16,92 +21,65 @@ export async function POST(request: NextRequest) {
   try {
     // Log all incoming requests for debugging
     const headers = Object.fromEntries(request.headers.entries());
+    
+    // Get the actual public URL from headers (for reverse proxy/ngrok scenarios)
+    const host = headers['host'] || headers['x-forwarded-host'] || 'unknown';
+    const protocol = headers['x-forwarded-proto'] || 'https';
+    const publicUrl = `${protocol}://${host}${request.nextUrl.pathname}`;
+    
+    // Google Drive push notifications send metadata in headers, not body!
+    // Key headers (case-insensitive):
+    const channelId = headers['x-goog-channel-id'] || headers['X-Goog-Channel-ID'];
+    const resourceState = headers['x-goog-resource-state'] || headers['X-Goog-Resource-State'];
+    const resourceId = headers['x-goog-resource-id'] || headers['X-Goog-Resource-ID'];
+    const resourceUri = headers['x-goog-resource-uri'] || headers['X-Goog-Resource-URI'];
+    const channelExpiration = headers['x-goog-channel-expiration'] || headers['X-Goog-Channel-Expiration'];
+    
     console.log('[Webhook] Received request:', {
       method: 'POST',
-      url: request.url,
-      headers: {
+      internalUrl: request.url, // Internal Next.js URL (may be localhost)
+      publicUrl: publicUrl, // Public URL (from headers)
+      googleHeaders: {
+        'X-Goog-Channel-ID': channelId,
+        'X-Goog-Resource-State': resourceState,
+        'X-Goog-Resource-ID': resourceId,
+        'X-Goog-Resource-URI': resourceUri,
+        'X-Goog-Channel-Expiration': channelExpiration,
+      },
+      otherHeaders: {
         'user-agent': headers['user-agent'],
         'content-type': headers['content-type'],
         'content-length': headers['content-length'],
         'x-forwarded-for': headers['x-forwarded-for'],
+        'host': headers['host'],
       },
       timestamp: new Date().toISOString(),
     });
-
-    // Handle empty body or non-JSON content
-    // Note: In Next.js, we can only read the request body once
-    let body: any = {};
-    const contentType = headers['content-type'] || '';
-    const contentLength = parseInt(headers['content-length'] || '0');
     
-    // If content-length is 0, Google is sending an empty verification request
-    if (contentLength === 0) {
-      console.log('[Webhook] ✅ Empty body received (content-length: 0) - Google verification request');
-      // Google sometimes sends empty POST requests for verification
-      // Return success immediately for empty requests
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Verification request received (empty body)',
-        timestamp: new Date().toISOString(),
-      });
+    // Log warning if there's a mismatch
+    if (request.url.includes('localhost') && !publicUrl.includes('localhost')) {
+      console.log('[Webhook] ⚠️ Note: Internal URL shows localhost, but public URL is:', publicUrl);
+      console.log('[Webhook] ✅ This is normal - Google is sending to the correct public URL');
     }
     
-    // Read body only if content-length > 0
-    if (contentLength > 0) {
-      try {
-        const bodyText = await request.text();
-        console.log('[Webhook] Raw body:', bodyText);
-        
-        if (bodyText && bodyText.trim().length > 0) {
-          if (contentType.includes('application/json') || bodyText.trim().startsWith('{')) {
-            body = JSON.parse(bodyText);
-          } else {
-            // Try to parse as JSON anyway
-            try {
-              body = JSON.parse(bodyText);
-            } catch {
-              console.log('[Webhook] Body is not JSON, treating as empty');
-              body = {};
-            }
-          }
-        }
-      } catch (error: any) {
-        console.error('[Webhook] Error reading body:', error.message);
-        // Continue with empty body
-        body = {};
-      }
-    }
-    
-    console.log('[Webhook] Parsed body:', JSON.stringify(body, null, 2));
-    
-    // Handle empty body or missing type
-    if (!body || !body.type) {
-      console.log('[Webhook] ⚠️ Received request with no type field');
-      console.log('[Webhook] Full body:', body);
-      // Google sometimes sends empty requests - return success anyway
-      return NextResponse.json({ success: true, message: 'Request received (no type specified)' });
-    }
-
-    // Google sends a sync notification when a watch is first set up
-    if (body.type === 'sync') {
-      console.log('[Webhook] ✅ Received sync notification from Google Drive');
-      console.log('[Webhook] Resource ID:', body.resourceId);
-      console.log('[Webhook] Resource State:', body.resourceState);
+    // IMPORTANT: Google Drive sends notifications with metadata in headers, not body!
+    // Process based on X-Goog-Resource-State header
+    if (resourceState === 'sync') {
+      console.log('[Webhook] ✅ Received SYNC notification from Google Drive');
+      console.log('[Webhook] Channel ID:', channelId);
+      console.log('[Webhook] Resource ID:', resourceId);
+      console.log('[Webhook] This is the initial sync notification when watch is created');
       return NextResponse.json({ success: true, message: 'Sync notification received' });
     }
-
-    // Google sends change notifications when files are modified
-    if (body.type === 'change') {
-      console.log('[Webhook] ✅ Received change notification from Google Drive');
-      console.log('[Webhook] Resource ID:', body.resourceId);
-      console.log('[Webhook] Resource State:', body.resourceState);
-      console.log('[Webhook] Changed:', body.changed);
+    
+    if (resourceState === 'update') {
+      console.log('[Webhook] ✅ Received CHANGE notification from Google Drive');
+      console.log('[Webhook] Channel ID:', channelId);
+      console.log('[Webhook] Resource ID:', resourceId);
+      console.log('[Webhook] Resource URI:', resourceUri);
       
-      const resourceId = body.resourceId;
-      const resourceState = body.resourceState;
-      const changed = body.changed;
-
       if (!resourceId) {
+        console.log('[Webhook] ⚠️ Missing X-Goog-Resource-ID header');
         return NextResponse.json({ success: false, message: 'Missing resourceId' }, { status: 400 });
       }
 
@@ -115,7 +93,8 @@ export async function POST(request: NextRequest) {
       for (const setting of watchSettings) {
         try {
           const watchChannel = JSON.parse(setting.value);
-          if (watchChannel.resourceId === resourceId) {
+          // Match by resourceId (from Google) or channelId (our UUID)
+          if (watchChannel.resourceId === resourceId || watchChannel.id === channelId) {
             const match = setting.key.match(/company_(\d+)_(property|task)_sheet_watch_channel/);
             if (match) {
               affectedCompanies.push({
@@ -130,13 +109,21 @@ export async function POST(request: NextRequest) {
       }
 
       if (affectedCompanies.length === 0) {
-        console.log(`[Webhook] ⚠️ No companies found for resourceId: ${resourceId}`);
+        console.log(`[Webhook] ⚠️ No companies found for resourceId: ${resourceId} or channelId: ${channelId}`);
         console.log(`[Webhook] Available watch channels:`, watchSettings.map(s => ({
           key: s.key,
           resourceId: (() => {
             try {
               const wc = JSON.parse(s.value);
               return wc.resourceId;
+            } catch {
+              return 'Invalid JSON';
+            }
+          })(),
+          channelId: (() => {
+            try {
+              const wc = JSON.parse(s.value);
+              return wc.id;
             } catch {
               return 'Invalid JSON';
             }
@@ -173,11 +160,13 @@ export async function POST(request: NextRequest) {
             }
           } else if (sheetType === 'task') {
             // Sync task sheet for this company
+            console.log(`[Webhook] Syncing task sheet for company ${companyId}...`);
             const spreadsheetIdSetting = await prisma.systemSetting.findUnique({
               where: { key: `company_${companyId}_task_sheet_id` },
             });
 
             if (spreadsheetIdSetting?.value) {
+              console.log(`[Webhook] Found task sheet ID: ${spreadsheetIdSetting.value}`);
               const sheetNameSetting = await prisma.systemSetting.findUnique({
                 where: { key: `company_${companyId}_task_sheet_name` },
               });
@@ -197,6 +186,7 @@ export async function POST(request: NextRequest) {
                 propertyIdColumnSetting?.value &&
                 actionColumnSetting?.value
               ) {
+                console.log(`[Webhook] All settings found, calling importTasksFromCompanySheet...`);
                 const { importTasksFromCompanySheet } = await import('@/lib/google-sheets-tasks');
                 const columnMapping = JSON.parse(mappingSetting.value);
 
@@ -209,13 +199,41 @@ export async function POST(request: NextRequest) {
                   actionColumnSetting.value
                 );
 
+                console.log(`[Webhook] ✅ Task sheet sync completed for company ${companyId}:`, {
+                  created: importResult.created || 0,
+                  updated: importResult.updated || 0,
+                  removed: importResult.removed || 0,
+                  errors: importResult.errors || 0,
+                });
+
                 syncResults.push({
                   companyId,
                   sheetType: 'task',
                   success: true,
                   result: importResult,
                 });
+              } else {
+                console.log(`[Webhook] ⚠️ Missing settings for company ${companyId} task sheet:`, {
+                  sheetName: !!sheetNameSetting?.value,
+                  mapping: !!mappingSetting?.value,
+                  propertyIdColumn: !!propertyIdColumnSetting?.value,
+                  actionColumn: !!actionColumnSetting?.value,
+                });
+                syncResults.push({
+                  companyId,
+                  sheetType: 'task',
+                  success: false,
+                  error: 'Missing required settings',
+                });
               }
+            } else {
+              console.log(`[Webhook] ⚠️ No task sheet ID found for company ${companyId}`);
+              syncResults.push({
+                companyId,
+                sheetType: 'task',
+                success: false,
+                error: 'Task sheet not configured',
+              });
             }
           }
         } catch (error: any) {
@@ -234,14 +252,21 @@ export async function POST(request: NextRequest) {
         success: true,
         resourceId,
         resourceState,
-        changed,
         syncResults,
       });
     }
-
-    // Unknown notification type
-    console.log('[Webhook] Received unknown notification type:', body.type);
-    return NextResponse.json({ success: true, message: 'Unknown notification type' });
+    
+    // Unknown or missing resource state
+    console.log('[Webhook] ⚠️ Unknown or missing X-Goog-Resource-State header');
+    console.log('[Webhook] Resource State:', resourceState);
+    console.log('[Webhook] This might be a verification request or malformed notification');
+    // Return success anyway to acknowledge receipt
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Notification received (unknown resource state)',
+      resourceState: resourceState || 'unknown',
+      timestamp: new Date().toISOString(),
+    });
   } catch (error: any) {
     console.error('[Webhook] Error processing Google Drive notification:', error);
     return NextResponse.json(

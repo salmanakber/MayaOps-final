@@ -83,6 +83,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    
+
     const tasks = await prisma.task.findMany({
       where,
       orderBy: [{ scheduledDate: 'asc' }, { id: 'asc' }],
@@ -130,6 +132,16 @@ export async function GET(request: NextRequest) {
         },
       },
     });
+    console.log('[Tasks API] Found', tasks.length, 'tasks');
+    if (tasks.length > 0) {
+      console.log('[Tasks API] Sample task:', {
+        id: tasks[0].id,
+        title: tasks[0].title,
+        scheduledDate: tasks[0].scheduledDate,
+        status: tasks[0].status,
+        companyId: tasks[0].companyId,
+      });
+    }
 
     return NextResponse.json({ success: true, data: { tasks }, downloadUrl: `${process.env.NEXT_PUBLIC_API_URL}/api/pdf/download` });
   } catch (error) {

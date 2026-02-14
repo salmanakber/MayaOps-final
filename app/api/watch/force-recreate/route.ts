@@ -49,10 +49,12 @@ export async function POST(request: NextRequest) {
 
         // Stop existing watch
         try {
+          console.log(`[Force Recreate] Stopping existing watch for company ${settingCompanyId}, ${sheetType} sheet...`);
           await stopWatchChannel(settingCompanyId, sheetType);
           console.log(`✅ Stopped watch for company ${settingCompanyId}, ${sheetType} sheet`);
         } catch (error: any) {
-          console.warn(`⚠️ Error stopping watch (may not exist):`, error.message);
+          console.warn(`⚠️ Error stopping watch (may not exist or already stopped):`, error.message);
+          // Continue anyway - the watch might not exist or already be stopped
         }
 
         // Get sheet ID
@@ -66,12 +68,14 @@ export async function POST(request: NextRequest) {
 
         if (sheetIdSetting?.value) {
           // Create new watch with current webhook URL
+          console.log(`[Force Recreate] Creating new watch for company ${settingCompanyId}, ${sheetType} sheet with file ${sheetIdSetting.value}...`);
           const watchChannel = await setupWatchChannel(
             sheetIdSetting.value,
             settingCompanyId,
             sheetType
           );
 
+          console.log(`✅ Successfully created watch for company ${settingCompanyId}, ${sheetType} sheet`);
           results.push({
             companyId: settingCompanyId,
             sheetType,

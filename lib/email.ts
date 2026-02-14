@@ -338,3 +338,157 @@ export async function sendQAResultEmail(
     html,
   });
 }
+
+export async function sendUserAccountCreatedEmail(
+  recipientEmail: string,
+  recipientName: string,
+  password: string,
+  role: string,
+  companyName?: string
+): Promise<boolean> {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #00838F; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { padding: 20px; background-color: #f9f9f9; border-radius: 0 0 8px 8px; }
+          .credentials-box { background-color: #E0F7FA; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #00838F; }
+          .credentials-item { margin: 8px 0; }
+          .credentials-label { font-weight: 600; color: #006064; }
+          .credentials-value { font-family: monospace; font-size: 14px; color: #333; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #00838F; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+          .warning { background-color: #FFF3CD; padding: 12px; border-radius: 6px; margin: 16px 0; border-left: 4px solid #F59E0B; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Welcome to MayaOps!</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${recipientName},</p>
+            <p>Your MayaOps account has been created successfully.</p>
+            ${companyName ? `<p><strong>Company:</strong> ${companyName}</p>` : ''}
+            <p><strong>Role:</strong> ${role}</p>
+            
+            <div class="credentials-box">
+              <h3 style="margin-top: 0; color: #006064;">Your Login Credentials</h3>
+              <div class="credentials-item">
+                <span class="credentials-label">Email:</span>
+                <div class="credentials-value">${recipientEmail}</div>
+              </div>
+              <div class="credentials-item">
+                <span class="credentials-label">Password:</span>
+                <div class="credentials-value">${password}</div>
+              </div>
+            </div>
+            
+            <div class="warning">
+              <strong>⚠️ Important:</strong> Please change your password after your first login for security purposes.
+            </div>
+            
+            <p>You can now log in to the MayaOps mobile app using these credentials.</p>
+            <p style="text-align: center;">
+              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://app.mayaops.com'}" class="button">Access MayaOps</a>
+            </p>
+            <p>If you have any questions or need assistance, please contact your administrator.</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} MayaOps. All rights reserved.</p>
+            <p>This is an automated email, please do not reply.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendEmail({
+    to: recipientEmail,
+    subject: 'Welcome to MayaOps - Your Account Has Been Created',
+    html,
+  });
+}
+
+export async function sendUserAccountUpdatedEmail(
+  recipientEmail: string,
+  recipientName: string,
+  changes: {
+    role?: string;
+    companyName?: string;
+    isActive?: boolean | string;
+    firstName?: string;
+    lastName?: string;
+  }
+): Promise<boolean> {
+  const changesList = Object.entries(changes)
+    .filter(([_, value]) => value !== undefined)
+    .map(([key, value]) => {
+      const label = key === 'isActive' 
+        ? 'Account Status' 
+        : key === 'role' 
+        ? 'Role' 
+        : key === 'companyName'
+        ? 'Company'
+        : key === 'firstName'
+        ? 'First Name'
+        : key === 'lastName'
+        ? 'Last Name'
+        : key;
+      return `<li><strong>${label}:</strong> ${value}</li>`;
+    })
+    .join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #00838F; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { padding: 20px; background-color: #f9f9f9; border-radius: 0 0 8px 8px; }
+          .changes-box { background-color: #E0F7FA; padding: 16px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #00838F; }
+          .changes-box ul { margin: 8px 0; padding-left: 20px; }
+          .button { display: inline-block; padding: 12px 24px; background-color: #00838F; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Account Updated</h1>
+          </div>
+          <div class="content">
+            <p>Hi ${recipientName},</p>
+            <p>Your MayaOps account has been updated. The following changes have been made:</p>
+            
+            <div class="changes-box">
+              <ul>
+                ${changesList}
+              </ul>
+            </div>
+            
+            <p>If you did not request these changes or have any concerns, please contact your administrator immediately.</p>
+            <p style="text-align: center;">
+              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://app.mayaops.com'}" class="button">Access MayaOps</a>
+            </p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} MayaOps. All rights reserved.</p>
+            <p>This is an automated email, please do not reply.</p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  return sendEmail({
+    to: recipientEmail,
+    subject: 'MayaOps - Your Account Has Been Updated',
+    html,
+  });
+}

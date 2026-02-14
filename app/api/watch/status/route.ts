@@ -110,10 +110,24 @@ export async function GET(request: NextRequest) {
     // Get webhook URL
     const baseUrl = process.env.NEXT_PUBLIC_API_URL || process.env.CRON_BASE_URL || 'http://127.0.0.1:3000';
     const webhookUrl = `${baseUrl}/api/webhooks/google-drive`;
+    
+    // Check for localhost URLs in existing watches
+    const watchesWithLocalhost = status.filter(c => {
+      const propUrl = c.propertySheet.watch?.fileId;
+      const taskUrl = c.taskSheet.watch?.fileId;
+      // Check if any watch was created with localhost (we can't check the actual URL stored in Google,
+      // but we can warn if the current webhook URL is localhost)
+      return baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
+    });
 
     return NextResponse.json({
       success: true,
       webhookUrl,
+      currentWebhookUrl: webhookUrl,
+      isLocalhost: baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1'),
+      warning: (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) 
+        ? '⚠️ Current webhook URL is localhost - Google cannot reach this! Set NEXT_PUBLIC_API_URL to your production URL and recreate watches.'
+        : null,
       totalCompanies: companies.length,
       companiesWithWatches: status.filter(c => c.propertySheet.watchActive || c.taskSheet.watchActive).length,
       status,

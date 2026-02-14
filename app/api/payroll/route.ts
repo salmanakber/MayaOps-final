@@ -23,20 +23,8 @@ export async function GET(request: NextRequest) {
       where.companyId = tokenUser.companyId;
     }
 
-    // Filter by current month if no specific month/year provided
-    if (!month && !year) {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      
-      where.periodStart = {
-        lte: endOfMonth,
-      };
-      where.periodEnd = {
-        gte: startOfMonth,
-      };
-    } else {
-      // Filter by specific month/year
+    // Filter by specific month/year if provided, otherwise show all records
+    if (month || year) {
       const yearNum = year ? parseInt(year) : new Date().getFullYear();
       const monthNum = month ? parseInt(month.split('-')[1]) - 1 : new Date().getMonth();
       const startOfMonth = new Date(yearNum, monthNum, 1);
@@ -49,6 +37,7 @@ export async function GET(request: NextRequest) {
         gte: startOfMonth,
       };
     }
+    // If no month/year provided, show all records (no date filter)
 
     const payrollRecords = await prisma.payrollRecord.findMany({
       where,

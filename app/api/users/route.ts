@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma';
 import { requireAuth, requireRole, requireCompanyScope } from '@/lib/rbac';
 import { hashPassword, isValidEmail, isValidPassword } from '@/lib/auth';
 import { UserRole } from '@prisma/client';
+import { sendUserAccountCreatedEmail } from '@/lib/email';
 
 // GET /api/users
 // List users - Owner/Developer see all; others see only their company
@@ -174,6 +175,27 @@ export async function POST(request: NextRequest) {
       },
       select: { id: true, email: true, firstName: true, lastName: true, role: true, companyId: true, isActive: true, createdAt: true },
     });
+
+    // Send welcome email to the new user
+    try {
+      const company = targetCompanyId ? await prisma.company.findUnique({
+        where: { id: targetCompanyId },
+        select: { name: true },
+      }) : null;
+
+      const userName = `${firstName || ''} ${lastName || ''}`.trim() || email;
+      await sendUserAccountCreatedEmail(
+        email.toLowerCase(),
+        userName,
+        password, // Send the plain password for first login
+        newUserRole,
+        company?.name
+      );
+      console.log(`✅ Account creation email sent to ${email}`);
+    } catch (emailError) {
+      console.error('Error sending account creation email:', emailError);
+      // Don't fail the user creation if email fails
+    }
 
     return NextResponse.json({ success: true, data: { user } }, { status: 201 });
   } catch (error) {

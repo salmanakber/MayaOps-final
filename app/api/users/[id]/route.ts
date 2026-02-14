@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth, canAccessCompany, requireCompanyScope } from '@/lib/rbac';
 import { UserRole } from '@prisma/client';
+import { sendUserAccountUpdatedEmail } from '@/lib/email';
 
 // Helper: check if requester can manage target user
 function canManage(requester: { role: UserRole; companyId?: number | null }, target: { role: UserRole; companyId?: number | null }) {
@@ -137,11 +138,60 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       }
     }
 
+    // Get the user before update to compare changes
+    const userBeforeUpdate = await prisma.user.findUnique({
+      where: { id },
+      select: { email: true, firstName: true, lastName: true, role: true, companyId: true, isActive: true },
+    });
+
     const updated = await prisma.user.update({
       where: { id },
       data,
       select: { id: true, email: true, firstName: true, lastName: true, role: true, companyId: true, isActive: true, createdAt: true },
     });
+
+    // Send update email if there were meaningful changes
+    try {
+      const changes: any = {};
+      
+      if (role !== undefined && userBeforeUpdate && userBeforeUpdate.role !== updated.role) {
+        changes.role = updated.role;
+      }
+      
+      if (isActive !== undefined && userBeforeUpdate && userBeforeUpdate.isActive !== updated.isActive) {
+        changes.isActive = updated.isActive ? 'Active' : 'Inactive';
+      }
+      
+      if (firstName !== undefined && userBeforeUpdate && userBeforeUpdate.firstName !== updated.firstName) {
+        changes.firstName = updated.firstName;
+      }
+      
+      if (lastName !== undefined && userBeforeUpdate && userBeforeUpdate.lastName !== updated.lastName) {
+        changes.lastName = updated.lastName;
+      }
+      
+      if (newCompanyId !== undefined && userBeforeUpdate && userBeforeUpdate.companyId !== updated.companyId) {
+        if (updated.companyId) {
+          const company = await prisma.company.findUnique({
+            where: { id: updated.companyId },
+            select: { name: true },
+          });
+          changes.companyName = company?.name || 'Unknown';
+        } else {
+          changes.companyName = 'Removed';
+        }
+      }
+
+      // Only send email if there are actual changes
+      if (Object.keys(changes).length > 0) {
+        const userName = `${updated.firstName || ''} ${updated.lastName || ''}`.trim() || updated.email;
+        await sendUserAccountUpdatedEmail(updated.email, userName, changes);
+        console.log(`✅ Account update email sent to ${updated.email}`);
+      }
+    } catch (emailError) {
+      console.error('Error sending account update email:', emailError);
+      // Don't fail the update if email fails
+    }
 
     return NextResponse.json({ success: true, data: { user: updated } });
   } catch (error) {

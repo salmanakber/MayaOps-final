@@ -501,6 +501,8 @@ enum UserRole {
   COMPANY_ADMIN
   MANAGER
   CLEANER
+  SUPER_ADMIN_MANAGER
+  
 }
 
 enum TaskStatus {

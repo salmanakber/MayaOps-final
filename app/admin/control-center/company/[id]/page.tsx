@@ -20,6 +20,9 @@ import {
   Edit,
   FileText,
 } from "lucide-react"
+import { usePermissions } from "@/lib/hooks/usePermissions"
+import { hasPermission, PERMISSIONS } from "@/lib/permissions"
+import RequirePermission from "@/components/RequirePermission"
 
 interface CompanyDetail {
   id: number
@@ -67,6 +70,7 @@ interface CompanyDetail {
 }
 
 export default function CompanyDetailPage() {
+  const { hasPermission, hasAnyPermission } = usePermissions()
   const router = useRouter()
   const params = useParams()
   const companyId = params.id as string
@@ -164,6 +168,7 @@ export default function CompanyDetailPage() {
 
   return (
     <AdminLayout>
+      <RequirePermission permission={PERMISSIONS.COMPANIES_VIEW}>
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -184,13 +189,15 @@ export default function CompanyDetailPage() {
               </div>
             </div>
           </div>
-          <button
+          {hasPermission(PERMISSIONS.COMPANIES_EDIT) && (
+            <button
             onClick={() => setShowEditModal(true)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
           >
             <Edit size={16} />
             Edit Company
-          </button>
+            </button>
+          )}
         </div>
 
         {/* Trial Status Banner */}
@@ -418,6 +425,7 @@ export default function CompanyDetailPage() {
           }}
         />
       )}
+      </RequirePermission>
     </AdminLayout>
   )
 }

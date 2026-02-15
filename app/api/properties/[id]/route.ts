@@ -42,6 +42,22 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
 
 // PATCH /api/properties/[id]
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  // Check permission for editing properties
+  const { requirePermission, PERMISSIONS } = await import('@/lib/permissions');
+  const permissionCheck = await requirePermission(request, PERMISSIONS.PROPERTIES_EDIT);
+  if (!permissionCheck.allowed) {
+    const auth = requireAuth(request);
+    if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+    const { tokenUser } = auth;
+    const role = tokenUser.role as UserRole;
+    // Allow OWNER, DEVELOPER, and SUPER_ADMIN to bypass permission check
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+      return NextResponse.json(
+        { success: false, message: permissionCheck.message },
+        { status: 403 }
+      );
+    }
+  }
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
   const { tokenUser } = auth;

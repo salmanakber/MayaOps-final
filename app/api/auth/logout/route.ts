@@ -36,10 +36,15 @@ export async function POST(request: NextRequest) {
     // In a JWT-based system, logout is handled client-side by removing the token
     // This endpoint deactivates device tokens and logs the logout
     
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       message: 'Logout successful'
     }, { status: 200 });
+
+    // Clear the auth token cookie
+    response.cookies.delete('authToken');
+    
+    return response;
 
   } catch (error) {
     console.error('Logout error:', error);

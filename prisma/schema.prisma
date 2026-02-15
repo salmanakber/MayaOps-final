@@ -21,6 +21,7 @@ model User {
   role         UserRole @default(CLEANER)
   companyId    Int?     @map("company_id")
   isActive     Boolean  @default(true) @map("is_active")
+  isHeadSuperAdmin Boolean @default(false) @map("is_head_super_admin") // Only one user can be head super admin (enforced in application logic)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -64,6 +65,8 @@ model User {
   workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
   workingHoursApprovals   WorkingHoursSubmission[] @relation("WorkingHoursApprovals")
   accountDeletionRequests AccountDeletionRequest[]
+  adminPermissions        AdminPermission[]
+  grantedPermissions      AdminPermission[] @relation("PermissionGrants")
 
   @@index([email])
   @@index([companyId])
@@ -912,4 +915,42 @@ model SystemSetting {
   @@index([category])
   @@index([key])
   @@map("system_settings")
+}
+
+// Permission model for granular admin access control
+model Permission {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique // e.g., "users.create", "billing.view", "settings.edit"
+  name        String   // Human-readable name
+  description String?  @db.Text
+  category    String   // e.g., "users", "billing", "settings", "companies"
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  adminPermissions AdminPermission[]
+
+  @@index([category])
+  @@index([key])
+  @@map("permissions")
+}
+
+// Many-to-many: Admin users and their permissions
+model AdminPermission {
+  id           Int       @id @default(autoincrement())
+  userId       Int       @map("user_id")
+  permissionId Int       @map("permission_id")
+  grantedBy    Int?      @map("granted_by") // Who granted this permission
+  grantedAt    DateTime  @default(now()) @map("granted_at")
+  revokedAt    DateTime? @map("revoked_at")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  granter    User?      @relation("PermissionGrants", fields: [grantedBy], references: [id])
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([permissionId])
+  @@index([isActive])
+  @@map("admin_permissions")
 }

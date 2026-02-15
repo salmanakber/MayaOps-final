@@ -3,6 +3,11 @@
 import { useState, useEffect, useMemo } from "react"
 import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
+import ProtectedPage from "@/components/ProtectedPage"
+import { usePermissions } from "@/lib/hooks/usePermissions"
+import { hasPermission, PERMISSIONS } from "@/lib/permissions"
+import RequirePermission from "@/components/RequirePermission"
+
 import { 
   Plus, Search, Calendar, Filter, LayoutList, Grid, 
   MoreVertical, Clock, MapPin, User as UserIcon, 
@@ -75,6 +80,9 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [propertyFilter, setPropertyFilter] = useState("all")
 
+  // 2. Use the hook in component
+const { hasPermission, hasAnyPermission } = usePermissions()
+
   // --- Stats Calculation ---
   const stats = useMemo(() => {
     return {
@@ -143,7 +151,8 @@ export default function TasksPage() {
 
   return (
     <AdminLayout>
-      <div className="relative h-[calc(100vh-theme(spacing.16))] flex flex-col max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <RequirePermission permissions={[PERMISSIONS.TASKS_VIEW]}>
+        <div className="relative h-[calc(100vh-theme(spacing.16))] flex flex-col max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         
         {/* Toast Container */}
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
@@ -166,13 +175,15 @@ export default function TasksPage() {
               {stats.issues > 0 && <span className="flex items-center gap-1.5 text-red-600 font-medium"><div className="w-2 h-2 rounded-full bg-red-500"></div> {stats.issues} Issues</span>}
             </div>
           </div>
-          <button
+          {hasPermission(PERMISSIONS.TASKS_CREATE) && (
+            <button
             onClick={() => { setSelectedTask(null); setIsDrawerOpen(true) }}
             className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-medium hover:bg-indigo-700 transition-all shadow-sm shadow-indigo-200"
           >
             <Plus size={18} />
             Create Task
-          </button>
+            </button>
+          )}
         </div>
 
         {/* Toolbar */}
@@ -238,6 +249,7 @@ export default function TasksPage() {
             </div>
           ) : viewMode === "list" ? (
             <TaskListView 
+              hasPermission={hasPermission}
               tasks={filteredTasks} 
               onEdit={(t: Task) => { setSelectedTask(t); setIsDrawerOpen(true) }}
               onDelete={handleDelete}
@@ -259,13 +271,16 @@ export default function TasksPage() {
         users={users}
         onSave={() => { setIsDrawerOpen(false); loadData(); showToast("Task saved successfully") }}
         onError={(msg: string) => showToast(msg, "error")}
+        hasPermission={hasPermission}
+        hasAnyPermission={hasAnyPermission}
       />
+      </RequirePermission>
     </AdminLayout>
   )
 }
 
 // --- List View ---
-function TaskListView({ tasks, onEdit, onDelete }: { tasks: Task[], onEdit: (t: Task) => void, onDelete: (id: number) => void }) {
+function TaskListView({ tasks, onEdit, onDelete, hasPermission }: { tasks: Task[], onEdit: (t: Task) => void, onDelete: (id: number) => void, hasPermission: (permission: string) => boolean }) {
   if (tasks.length === 0) return <EmptyState />
 
   return (
@@ -326,9 +341,12 @@ function TaskListView({ tasks, onEdit, onDelete }: { tasks: Task[], onEdit: (t: 
                       <button onClick={() => onEdit(task)} className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit">
                         <FileText size={16} />
                       </button>
-                      <button onClick={() => onDelete(task.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
-                        <Trash2 size={16} />
-                      </button>
+     
+                      {hasPermission(PERMISSIONS.TASKS_DELETE) && (
+                        <button onClick={() => onDelete(task.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
+                          <Trash2 size={16} />
+                        </button>
+                      )}
                    </div>
                 </td>
               </tr>
@@ -438,7 +456,7 @@ function EmptyState() {
 }
 
 // --- Task Drawer ---
-function TaskDrawer({ isOpen, onClose, task, properties, users, onSave, onError }: any) {
+function TaskDrawer({ isOpen, onClose, task, properties, users, onSave, onError, hasPermission }: any) {
   const [formData, setFormData] = useState<any>({
     title: "", propertyId: "", assignedUserId: "", status: "DRAFT", 
     scheduledDate: "", description: "", isRecurring: false, recurringPattern: "weekly"
@@ -584,6 +602,7 @@ function TaskDrawer({ isOpen, onClose, task, properties, users, onSave, onError 
                <button onClick={onClose} className="flex-1 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors">
                   Cancel
                </button>
+               {hasPermission(PERMISSIONS.TASKS_EDIT) && (
                <button 
                   onClick={handleSubmit} 
                   disabled={loading}
@@ -592,6 +611,7 @@ function TaskDrawer({ isOpen, onClose, task, properties, users, onSave, onError 
                   {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
                   {task ? "Save Changes" : "Create Task"}
                </button>
+               )}
           </div>
       </div>
     </>

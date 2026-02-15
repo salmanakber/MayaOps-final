@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import Link from "next/link"
 import axios from "axios"
@@ -21,10 +21,13 @@ import {
   X,
   Search,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Bell,
   Ticket,
   UserMinus,
-  Code
+  Code,
+  Shield
 } from "lucide-react"
 import CompanySelector from "./CompanySelector"
 
@@ -36,6 +39,7 @@ interface User {
   lastName?: string
   role: string
   companyId?: number
+  profileImage?: string
 }
 
 interface AdminLayoutProps {
@@ -46,7 +50,9 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter()
   const pathname = usePathname()
   const [user, setUser] = useState<User | null>(null)
+  const [userPermissions, setUserPermissions] = useState<string[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false) // Default closed on mobile
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false) // Collapsed state for desktop
   const [loading, setLoading] = useState(true)
   const [userDropdownOpen, setUserDropdownOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
@@ -74,6 +80,12 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     loadOpenTicketCount()
   }, [])
 
+  useEffect(() => {
+    if (user) {
+      loadUserPermissions()
+    }
+  }, [user])
+
   const loadOpenTicketCount = async () => {
     try {
       const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
@@ -95,9 +107,26 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const loadUser = async () => {
     try {
       const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      
+      // If no token in storage, try to get user anyway (cookie might be set)
+      // This allows the middleware to handle auth via cookies
       if (!token) {
-        router.push("/login")
-        return
+        try {
+          const response = await axios.get("/api/auth/me")
+          if (response.data.success) {
+            setUser(response.data.data.user)
+            // Store token for future API calls
+            if (response.data.data.token) {
+              localStorage.setItem("authToken", response.data.data.token)
+            }
+            setLoading(false)
+            return
+          }
+        } catch (err) {
+          // If cookie auth also fails, redirect to login
+          router.push("/login")
+          return
+        }
       }
 
       const response = await axios.get("/api/auth/me", {
@@ -107,14 +136,60 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       if (response.data.success) {
         setUser(response.data.data.user)
       } else {
+        // If API returns error, clear token and redirect
+        localStorage.removeItem("authToken")
+        sessionStorage.removeItem("authToken")
         router.push("/login")
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading user:", error)
-      router.push("/login")
+      // Only redirect on 401/403 errors, not network errors
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        localStorage.removeItem("authToken")
+        sessionStorage.removeItem("authToken")
+        router.push("/login")
+      } else {
+        // For other errors, set loading to false so UI can render
+        setLoading(false)
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadUserPermissions = async () => {
+    try {
+      const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+      if (!token) return
+
+      const response = await axios.get("/api/auth/permissions", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (response.data.success) {
+        setUserPermissions(response.data.data.permissions || [])
+      }
+    } catch (error) {
+      console.error("Error loading permissions:", error)
+      setUserPermissions([])
+    }
+  }
+
+  // Helper function to check if user has permission
+  const hasPermission = (permissionKey: string): boolean => {
+    // Head super admin, DEVELOPER, and OWNER have all permissions
+    if (user?.role === "DEVELOPER" || user?.role === "OWNER" || (user as any)?.isHeadSuperAdmin) {
+      return true
+    }
+    return userPermissions.includes(permissionKey)
+  }
+
+  // Helper function to check if user has any of the permissions
+  const hasAnyPermission = (permissionKeys: string[]): boolean => {
+    if (user?.role === "DEVELOPER" || user?.role === "OWNER" || (user as any)?.isHeadSuperAdmin) {
+      return true
+    }
+    return permissionKeys.some(key => userPermissions.includes(key))
   }
 
   const handleLogout = () => {
@@ -125,21 +200,106 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
     router.push("/login")
   }
 
-  // --- Navigation Config ---
+  // --- Navigation Config with Permissions ---
   const baseNavigation = [
-    { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
-    { name: "Properties", href: "/admin/properties", icon: Building2 },
-    { name: "Tasks", href: "/admin/tasks", icon: ClipboardList },
-    { name: "Rota Builder", href: "/admin/rota", icon: CalendarDays },
-    { name: "Recurring Jobs", href: "/admin/recurring-jobs", icon: RefreshCcw },
-    { name: "Issues", href: "/admin/issues", icon: AlertCircle },
-    { name: "Sheets Sync", href: "/admin/sheets-sync", icon: Database },
-    { name: "User Management", href: "/admin/users", icon: Users },
-    { name: "Support Tickets", href: "/admin/support-tickets", icon: Ticket },
-    { name: "Account Deletion", href: "/admin/account-deletion", icon: UserMinus },
-    { name: "Notifications", href: "/admin/notifications", icon: Bell },
-    { name: "Reporting", href: "/admin/reporting", icon: BarChart3 },
-    { name: "Settings", href: "/admin/settings", icon: Settings },
+    { 
+      name: "Dashboard", 
+      href: "/admin/dashboard", 
+      icon: LayoutDashboard,
+      permission: null, // Always accessible
+      roles: null // All roles
+    },
+    { 
+      name: "Properties", 
+      href: "/admin/properties", 
+      icon: Building2,
+      permission: "properties.view",
+      roles: null
+    },
+    { 
+      name: "Tasks", 
+      href: "/admin/tasks", 
+      icon: ClipboardList,
+      permission: "tasks.view",
+      roles: null
+    },
+    { 
+      name: "Rota Builder", 
+      href: "/admin/rota", 
+      icon: CalendarDays,
+      permission: "tasks.view",
+      roles: null
+    },
+    { 
+      name: "Recurring Jobs", 
+      href: "/admin/recurring-jobs", 
+      icon: RefreshCcw,
+      permission: "tasks.view",
+      roles: null
+    },
+    { 
+      name: "Issues", 
+      href: "/admin/issues", 
+      icon: AlertCircle,
+      permission: "tasks.view",
+      roles: null
+    },
+    { 
+      name: "Sheets Sync", 
+      href: "/admin/sheets-sync", 
+      icon: Database,
+      permission: "system.admin",
+      roles: ["DEVELOPER", "OWNER", "SUPER_ADMIN"]
+    },
+    { 
+      name: "User Management", 
+      href: "/admin/users-management", 
+      icon: Users,
+      permission: "users.view",
+      roles: null
+    },
+    { 
+      name: "Admin Management", 
+      href: "/admin/admin-management", 
+      icon: Shield,
+      permission: "users.manage_admins",
+      roles: null
+    },
+    { 
+      name: "Support Tickets", 
+      href: "/admin/support-tickets", 
+      icon: Ticket,
+      permission: "support_tickets.view",
+      roles: ["COMPANY_ADMIN", "OWNER", "DEVELOPER", "SUPER_ADMIN"]
+    },
+    { 
+      name: "Account Deletion", 
+      href: "/admin/account-deletion", 
+      icon: UserMinus,
+      permission: "users.delete_account_request",
+      roles: null
+    },
+    { 
+      name: "Notifications", 
+      href: "/admin/notifications", 
+      icon: Bell,
+      permission: null,
+      roles: ["COMPANY_ADMIN", "OWNER", "DEVELOPER", "SUPER_ADMIN"]
+    },
+    { 
+      name: "Reporting", 
+      href: "/admin/reporting", 
+      icon: BarChart3,
+      permission: "reports.view",
+      roles: null
+    },
+    { 
+      name: "Settings", 
+      href: "/admin/settings", 
+      icon: Settings,
+      permission: "settings.view",
+      roles: null
+    },
   ]
   
   // Add Developer Tools for developers, owners, and super admins
@@ -148,20 +308,55 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       name: "Developer Tools",
       href: "/admin/developer",
       icon: Code,
+      permission: "system.developer",
+      roles: ["DEVELOPER", "OWNER", "SUPER_ADMIN"]
     })
   }
 
-  // Filter navigation based on user role
-  let navigation = [...baseNavigation]
-  
-  // Add control center for super admins, owners, developers
-  if (user?.role === "SUPER_ADMIN" || user?.role === "OWNER" || user?.role === "DEVELOPER") {
-    navigation.unshift({
-      name: "Control Center",
-      href: "/admin/control-center",
-      icon: Command,
+  // Filter navigation based on permissions and roles
+  // Use useMemo to recalculate when user or permissions change
+  const navigation = React.useMemo(() => {
+    if (!user) return []
+    
+    let filtered = baseNavigation.filter(item => {
+      // Check role-based access first
+      if (item.roles && user.role) {
+        if (!item.roles.includes(user.role)) {
+          return false
+        }
+      }
+      
+      // Check permission-based access
+      if (item.permission) {
+        // Head super admin, DEVELOPER, and OWNER have all permissions
+        if (user.role === "DEVELOPER" || user.role === "OWNER" || (user as any)?.isHeadSuperAdmin) {
+          return true
+        }
+        return userPermissions.includes(item.permission)
+      }
+      
+      // If no permission required, allow access
+      return true
     })
-  }
+    
+    // Add control center for super admins, owners, developers (with permission check)
+    const isHeadAdmin = (user as any)?.isHeadSuperAdmin
+    const hasSystemAccess = user.role === "DEVELOPER" || user.role === "OWNER" || isHeadAdmin || 
+      ["system.admin", "system.developer"].some(key => userPermissions.includes(key))
+    
+    if ((user.role === "SUPER_ADMIN" || user.role === "OWNER" || user.role === "DEVELOPER") && 
+        hasSystemAccess) {
+      filtered.unshift({
+        name: "Control Center",
+        href: "/admin/control-center",
+        icon: Command,
+        permission: "system.admin",
+        roles: null
+      })
+    }
+    
+    return filtered
+  }, [user, userPermissions])
 
   // Only show Notifications for COMPANY_ADMIN, OWNER, DEVELOPER, SUPER_ADMIN
   // if (user?.role !== "COMPANY_ADMIN" && user?.role !== "OWNER" && user?.role !== "DEVELOPER" && user?.role !== "SUPER_ADMIN") {
@@ -213,55 +408,80 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
       {/* --- Sidebar --- */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-200 shadow-sm transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:h-screen lg:flex lg:flex-col ${
+        className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-gray-200 shadow-sm transform transition-all duration-300 ease-in-out lg:translate-x-0 lg:static lg:h-screen lg:flex lg:flex-col ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        } ${
+          sidebarCollapsed ? "w-20 lg:w-20" : "w-72 lg:w-72"
         }`}
       >
         {/* Logo Section */}
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-indigo-200 shadow-md">
+          {!sidebarCollapsed && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-indigo-200 shadow-md">
+                <span className="text-white font-bold text-lg">M</span>
+              </div>
+              <span className="font-bold text-xl text-gray-900 tracking-tight">MayaOps</span>
+            </div>
+          )}
+          {sidebarCollapsed && (
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-indigo-200 shadow-md mx-auto">
               <span className="text-white font-bold text-lg">M</span>
             </div>
-            <span className="font-bold text-xl text-gray-900 tracking-tight">MayaOps</span>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              className="hidden lg:flex p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {sidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+            >
+              <X size={20} />
+            </button>
           </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-          >
-            <X size={20} />
-          </button>
         </div>
 
         {/* Navigation Links */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-200">
-          <p className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-            Menu
-          </p>
+          {!sidebarCollapsed && (
+            <p className="px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              Menu
+            </p>
+          )}
           {filteredNavigation.map((item) => {
             const isActive = pathname === item.href
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                className={`group flex items-center ${sidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                 }`}
+                title={sidebarCollapsed ? item.name : undefined}
               >
                 <div className="relative flex items-center gap-3">
                   <item.icon
                     size={18}
-                    className={`transition-colors ${
+                    className={`transition-colors flex-shrink-0 ${
                       isActive ? "text-indigo-600" : "text-gray-400 group-hover:text-gray-600"
                     }`}
                   />
-                  <span>{item.name}</span>
-                  {item.name === "Support Tickets" && openTicketCount > 0 && (
-                    <span className="ml-auto inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold px-1.5 py-0.5 min-w-[18px]">
-                      {openTicketCount > 99 ? "99+" : openTicketCount}
-                    </span>
+                  {!sidebarCollapsed && (
+                    <>
+                      <span>{item.name}</span>
+                      {item.name === "Support Tickets" && openTicketCount > 0 && (
+                        <span className="ml-auto inline-flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-semibold px-1.5 py-0.5 min-w-[18px]">
+                          {openTicketCount > 99 ? "99+" : openTicketCount}
+                        </span>
+                      )}
+                    </>
                   )}
                 </div>
               </Link>
@@ -271,26 +491,43 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
         {/* User Profile Section */}
         <div className="p-4 border-t border-gray-100 bg-gray-50/50">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-indigo-600 font-bold">
-              {user?.firstName?.[0] || user?.email?.[0].toUpperCase()}
+          {!sidebarCollapsed ? (
+            <>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-indigo-600 font-bold">
+                  {user?.firstName?.[0] || user?.email?.[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.email}
+                  </p>
+                  <p className="text-xs text-gray-500 truncate capitalize">
+                    {user?.role?.replace("_", " ").toLowerCase()}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
+              >
+                <LogOut size={14} />
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center shadow-sm text-indigo-600 font-bold">
+                {user?.firstName?.[0] || user?.email?.[0].toUpperCase()}
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
+                title="Sign Out"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-gray-900 truncate">
-                {user?.firstName ? `${user.firstName} ${user.lastName || ''}` : user?.email}
-              </p>
-              <p className="text-xs text-gray-500 truncate capitalize">
-                {user?.role?.replace("_", " ").toLowerCase()}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-100"
-          >
-            <LogOut size={14} />
-            Sign Out
-          </button>
+          )}
         </div>
       </aside>
 
@@ -358,7 +595,15 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                 className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="w-8 h-8 rounded-full bg-indigo-100 border border-indigo-200 flex items-center justify-center text-indigo-600 font-semibold text-sm">
-                  {user?.firstName?.[0] || user?.email?.[0].toUpperCase()}
+                  {user?.profileImage ? (
+                    <img
+                      src={user.profileImage}
+                      alt="Profile"
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                  ) : user?.firstName?.[0] || user?.email?.[0].toUpperCase()}
                 </div>
                 <span className="hidden sm:block text-sm font-medium text-gray-700">
                   {user?.firstName || user?.email?.split("@")[0] || "User"}
@@ -375,22 +620,35 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
                   <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
                     <div className="p-2">
                       <div className="px-3 py-2 border-b border-gray-100">
-                        <p className="text-sm font-semibold text-gray-900">
-                          {user?.firstName && user?.lastName
-                            ? `${user.firstName} ${user.lastName}`
-                            : user?.email}
-                        </p>
+                      <div className="text-sm font-semibold text-gray-900">
+                        {user?.profileImage ? (
+                          <div className="flex items-center gap-2">
+                            <img
+                              src={user.profileImage}
+                              alt="Profile"
+                              width={32}
+                              height={32}
+                              className="rounded-full"
+                            />
+                          </div>
+                        ) : user?.firstName && user?.lastName ? (
+                          `${user.firstName} ${user.lastName}`
+                        ) : (
+                          user?.email
+                        )}
+                      </div>
+
                         <p className="text-xs text-gray-500 capitalize mt-1">
                           {user?.role?.replace("_", " ").toLowerCase()}
                         </p>
                       </div>
                       <Link
-                        href="/admin/settings"
+                        href={`/admin/profile`}
                         onClick={() => setUserDropdownOpen(false)}
                         className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       >
                         <Settings size={16} />
-                        <span>Settings</span>
+                        <span>My Profile</span>
                       </Link>
                       <button
                         onClick={() => {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
+import RequirePermission from "@/components/RequirePermission"
 import { 
   ClipboardList, 
   CheckCircle2, 
@@ -16,6 +17,7 @@ import {
   Calendar,
   AlertCircle
 } from "lucide-react"
+import Link from "next/link"
 
 // --- Types ---
 interface DashboardStats {
@@ -207,7 +209,9 @@ export default function AdminDashboard() {
           <div className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                 <h2 className="text-lg font-bold text-gray-900">Recent Tasks</h2>
-                <button className="text-sm text-indigo-600 font-medium hover:text-indigo-800">View All</button>
+                <Link href="/admin/tasks" className="text-sm text-indigo-600 font-medium hover:text-indigo-800">
+                  View All
+                </Link>
             </div>
             
             <div className="flex-1 overflow-auto max-h-[400px]">
@@ -292,9 +296,9 @@ export default function AdminDashboard() {
               )}
             </div>
             <div className="mt-auto p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl">
-                <button className="w-full text-center text-sm text-gray-600 hover:text-gray-900 font-medium">
+                <Link href="/admin/reporting" className="w-full text-center text-sm text-gray-600 hover:text-gray-900 font-medium">
                     View Full Report
-                </button>
+                </Link>
             </div>
           </div>
 

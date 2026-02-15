@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import axios, { AxiosError } from "axios"
 import AdminLayout from "@/components/AdminLayout"
+import ProtectedPage from "@/components/ProtectedPage"
 // Ideally, use a library like 'lucide-react' for icons
 // import { Edit, Trash2, Power, Plus, Search } from "lucide-react" 
 
@@ -109,10 +110,48 @@ export default function UserManagementPage() {
     fetchUsers()
   }, [fetchUsers])
 
+  // Filter out admin roles - only show OWNER, CLEANER, MANAGER
+  const allowedRoles = ["OWNER", "CLEANER", "MANAGER"]
+  const nonAdminUsers = useMemo(() => {
+    return users.filter((user) => allowedRoles.includes(user.role))
+  }, [users])
+
+  // Group users by company and role for tree view
+  const groupedUsers = useMemo(() => {
+    const grouped: Record<number, {
+      company: { id: number; name: string } | null
+      owners: User[]
+      managers: User[]
+      cleaners: User[]
+    }> = {}
+
+    nonAdminUsers.forEach((user) => {
+      const companyId = user.companyId || 0
+      if (!grouped[companyId]) {
+        grouped[companyId] = {
+          company: user.company && user.companyId ? { id: user.companyId, name: user.company.name } : null,
+          owners: [],
+          managers: [],
+          cleaners: [],
+        }
+      }
+
+      if (user.role === "OWNER") {
+        grouped[companyId].owners.push(user)
+      } else if (user.role === "MANAGER") {
+        grouped[companyId].managers.push(user)
+      } else if (user.role === "CLEANER") {
+        grouped[companyId].cleaners.push(user)
+      }
+    })
+
+    return grouped
+  }, [nonAdminUsers])
+
   // Optimized Filtering using useMemo
   const filteredUsers = useMemo(() => {
     const term = searchTerm.toLowerCase().trim()
-    return users.filter((user) => {
+    return nonAdminUsers.filter((user) => {
       const matchesSearch =
         user.email.toLowerCase().includes(term) ||
         user.firstName?.toLowerCase().includes(term) ||
@@ -122,7 +161,7 @@ export default function UserManagementPage() {
       
       return matchesSearch && matchesRole
     })
-  }, [users, searchTerm, roleFilter])
+  }, [nonAdminUsers, searchTerm, roleFilter])
 
   const handleDeleteClick = async (id: number) => {
     if (window.confirm("Are you sure you want to delete this user? This action cannot be undone.")) {
@@ -142,7 +181,8 @@ export default function UserManagementPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <ProtectedPage>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="sm:flex sm:items-center sm:justify-between mb-8">
           <div>
@@ -178,81 +218,213 @@ export default function UserManagementPage() {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white"
               >
                 <option value="all">All Roles</option>
-                {Object.keys(ROLE_COLORS).map(role => (
-                   <option key={role} value={role}>{role.replace("_", " ")}</option>
-                ))}
+                <option value="OWNER">Owner</option>
+                <option value="MANAGER">Manager</option>
+                <option value="CLEANER">Cleaner</option>
               </select>
             </div>
           </div>
         </div>
 
-        {/* Table */}
+        {/* Tree View */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           {loading ? (
              <div className="flex justify-center items-center h-64">
                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-600"></div>
              </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {["User Info", "Role", "Company", "Status", "Joined", "Actions"].map((head) => (
-                      <th key={head} className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                        {head}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredUsers.length > 0 ? filteredUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-gray-900">
-                            {user.firstName || user.lastName ? `${user.firstName} ${user.lastName}` : "Unnamed"}
-                          </span>
-                          <span className="text-sm text-gray-500">{user.email}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <RoleBadge role={user.role} />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {user.company?.name || <span className="text-gray-400 italic">None</span>}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <StatusBadge isActive={user.isActive} />
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(user.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+          ) : Object.keys(groupedUsers).length > 0 ? (
+            <div className="divide-y divide-gray-200">
+              {Object.entries(groupedUsers).map(([companyId, group]) => (
+                <div key={companyId} className="p-6">
+                  {/* Company Header */}
+                  <div className="mb-4 pb-3 border-b border-gray-200">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {group.company?.name || `Company ID: ${companyId}`}
+                    </h3>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {group.owners.length} Owner(s), {group.managers.length} Manager(s), {group.cleaners.length} Cleaner(s)
+                    </p>
+                  </div>
+
+                  {/* Owners */}
+                  {group.owners.map((owner) => (
+                    <div key={owner.id} className="mb-4">
+                      <div className="flex items-center justify-between p-4 bg-blue-50 rounded-lg border border-blue-200">
                         <div className="flex items-center gap-3">
-                          <button onClick={() => openEditModal(user)} className="text-cyan-600 hover:text-cyan-900 font-medium">
+                          <div className="w-10 h-10 rounded-full bg-blue-100 border-2 border-blue-300 flex items-center justify-center">
+                            <span className="text-blue-700 font-bold text-sm">O</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {owner.firstName || owner.lastName ? `${owner.firstName} ${owner.lastName}` : "Unnamed Owner"}
+                              </span>
+                              <RoleBadge role={owner.role} />
+                              <StatusBadge isActive={owner.isActive} />
+                            </div>
+                            <span className="text-sm text-gray-500">{owner.email}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEditModal(owner)} className="text-cyan-600 hover:text-cyan-900 text-sm font-medium">
                             Edit
                           </button>
                           <button 
-                            onClick={() => toggleStatus(user)}
-                            className={`${user.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} font-medium`}
+                            onClick={() => toggleStatus(owner)}
+                            className={`${owner.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} text-sm font-medium`}
                           >
-                            {user.isActive ? "Disable" : "Enable"}
-                          </button>
-                          <button onClick={() => handleDeleteClick(user.id)} className="text-red-600 hover:text-red-900 font-medium">
-                            Delete
+                            {owner.isActive ? "Disable" : "Enable"}
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  )) : (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        No users found matching your criteria.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                      </div>
+
+                      {/* Managers under this owner */}
+                      {group.managers.filter(m => m.companyId === owner.companyId || (!m.companyId && !owner.companyId)).length > 0 && (
+                        <div className="ml-8 mt-2 space-y-2">
+                          {group.managers.filter(m => m.companyId === owner.companyId || (!m.companyId && !owner.companyId)).map((manager) => (
+                            <div key={manager.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-amber-100 border-2 border-amber-300 flex items-center justify-center">
+                                  <span className="text-amber-700 font-bold text-xs">M</span>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {manager.firstName || manager.lastName ? `${manager.firstName} ${manager.lastName}` : "Unnamed Manager"}
+                                    </span>
+                                    <RoleBadge role={manager.role} />
+                                    <StatusBadge isActive={manager.isActive} />
+                                  </div>
+                                  <span className="text-xs text-gray-500">{manager.email}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => openEditModal(manager)} className="text-cyan-600 hover:text-cyan-900 text-xs font-medium">
+                                  Edit
+                                </button>
+                                <button 
+                                  onClick={() => toggleStatus(manager)}
+                                  className={`${manager.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} text-xs font-medium`}
+                                >
+                                  {manager.isActive ? "Disable" : "Enable"}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Cleaners under this owner */}
+                      {group.cleaners.filter(c => c.companyId === owner.companyId || (!c.companyId && !owner.companyId)).length > 0 && (
+                        <div className="ml-8 mt-2 space-y-2">
+                          {group.cleaners.filter(c => c.companyId === owner.companyId || (!c.companyId && !owner.companyId)).map((cleaner) => (
+                            <div key={cleaner.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-gray-300 flex items-center justify-center">
+                                  <span className="text-gray-700 font-bold text-xs">C</span>
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-900">
+                                      {cleaner.firstName || cleaner.lastName ? `${cleaner.firstName} ${cleaner.lastName}` : "Unnamed Cleaner"}
+                                    </span>
+                                    <RoleBadge role={cleaner.role} />
+                                    <StatusBadge isActive={cleaner.isActive} />
+                                  </div>
+                                  <span className="text-xs text-gray-500">{cleaner.email}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button onClick={() => openEditModal(cleaner)} className="text-cyan-600 hover:text-cyan-900 text-xs font-medium">
+                                  Edit
+                                </button>
+                                <button 
+                                  onClick={() => toggleStatus(cleaner)}
+                                  className={`${cleaner.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} text-xs font-medium`}
+                                >
+                                  {cleaner.isActive ? "Disable" : "Enable"}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  {/* Standalone Managers (without owner in same company) */}
+                  {group.managers.filter(m => !group.owners.some(o => (o.companyId === m.companyId) || (!o.companyId && !m.companyId))).map((manager) => (
+                    <div key={manager.id} className="mb-2">
+                      <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg border border-amber-200">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-amber-100 border-2 border-amber-300 flex items-center justify-center">
+                            <span className="text-amber-700 font-bold text-xs">M</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">
+                                {manager.firstName || manager.lastName ? `${manager.firstName} ${manager.lastName}` : "Unnamed Manager"}
+                              </span>
+                              <RoleBadge role={manager.role} />
+                              <StatusBadge isActive={manager.isActive} />
+                            </div>
+                            <span className="text-xs text-gray-500">{manager.email}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEditModal(manager)} className="text-cyan-600 hover:text-cyan-900 text-xs font-medium">
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => toggleStatus(manager)}
+                            className={`${manager.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} text-xs font-medium`}
+                          >
+                            {manager.isActive ? "Disable" : "Enable"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Standalone Cleaners (without owner in same company) */}
+                  {group.cleaners.filter(c => !group.owners.some(o => (o.companyId === c.companyId) || (!o.companyId && !c.companyId))).map((cleaner) => (
+                    <div key={cleaner.id} className="mb-2">
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-gray-300 flex items-center justify-center">
+                            <span className="text-gray-700 font-bold text-xs">C</span>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-900">
+                                {cleaner.firstName || cleaner.lastName ? `${cleaner.firstName} ${cleaner.lastName}` : "Unnamed Cleaner"}
+                              </span>
+                              <RoleBadge role={cleaner.role} />
+                              <StatusBadge isActive={cleaner.isActive} />
+                            </div>
+                            <span className="text-xs text-gray-500">{cleaner.email}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEditModal(cleaner)} className="text-cyan-600 hover:text-cyan-900 text-xs font-medium">
+                            Edit
+                          </button>
+                          <button 
+                            onClick={() => toggleStatus(cleaner)}
+                            className={`${cleaner.isActive ? "text-amber-600 hover:text-amber-800" : "text-green-600 hover:text-green-800"} text-xs font-medium`}
+                          >
+                            {cleaner.isActive ? "Disable" : "Enable"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="px-6 py-12 text-center text-gray-500">
+              No users found matching your criteria.
             </div>
           )}
         </div>
@@ -269,6 +441,7 @@ export default function UserManagementPage() {
           }}
         />
       )}
+      </ProtectedPage>
     </AdminLayout>
   )
 }
@@ -449,9 +622,9 @@ function UserFormModal({ user, onClose, onSuccess }: UserFormModalProps) {
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as UserRole })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"
                 >
-                  {Object.keys(ROLE_COLORS).map((role) => (
-                    <option key={role} value={role}>{role.replace("_", " ")}</option>
-                  ))}
+                  <option value="OWNER">Owner</option>
+                  <option value="MANAGER">Manager</option>
+                  <option value="CLEANER">Cleaner</option>
                 </select>
               </div>
             </div>

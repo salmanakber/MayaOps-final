@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
         role: true,
         companyId: true,
         isActive: true,
+        isHeadSuperAdmin: true,
         createdAt: true
       }
     });
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
           profileImage: user.profileImage,
           role: user.role,
           companyId: user.companyId,
+          isHeadSuperAdmin: user.isHeadSuperAdmin,
           createdAt: user.createdAt
         }
       }

@@ -93,6 +93,19 @@ export async function POST(request: NextRequest) {
   const { tokenUser } = auth;
   const role = tokenUser.role as UserRole;
 
+  // Check permission for creating properties
+  const { requirePermission, PERMISSIONS } = await import('@/lib/permissions');
+  const permissionCheck = await requirePermission(request, PERMISSIONS.PROPERTIES_CREATE);
+  if (!permissionCheck.allowed) {
+    // Allow OWNER, DEVELOPER, and SUPER_ADMIN to bypass permission check (they have implicit access)
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+      return NextResponse.json(
+        { success: false, message: permissionCheck.message },
+        { status: 403 }
+      );
+    }
+  }
+
   try {
     const body = await request.json();
     const { 

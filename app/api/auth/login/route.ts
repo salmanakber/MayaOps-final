@@ -33,7 +33,18 @@ export async function POST(request: NextRequest) {
 
     // Find user by email
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        companyId: true,
+        isActive: true,
+        isHeadSuperAdmin: true,
+      }
     });
 
     if (!user) {
@@ -216,7 +227,8 @@ export async function POST(request: NextRequest) {
       companyId: user.companyId || undefined
     });
 
-    return NextResponse.json({
+    // Create response with token in both JSON and cookie
+    const response = NextResponse.json({
       success: true,
       message: 'Login successful',
       data: {
@@ -227,10 +239,26 @@ export async function POST(request: NextRequest) {
           firstName: user.firstName,
           lastName: user.lastName,
           role: user.role,
-          companyId: user.companyId
+          companyId: user.companyId,
+          isHeadSuperAdmin: user.isHeadSuperAdmin
         }
       }
     }, { status: 200 });
+
+    // Set token in HTTP-only cookie for server-side middleware access
+    // Use 'strict' sameSite in production, 'lax' in development for better cookie handling
+    response.cookies.set('authToken', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // Changed from 'strict' to 'lax' to allow cross-site navigation
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+      domain: process.env.NODE_ENV === 'production' ? undefined : undefined, // Let browser set domain
+    });
+    
+    console.log('[Login] Cookie set for user:', user.email, 'isHeadSuperAdmin:', user.isHeadSuperAdmin)
+
+    return response;
 
   } catch (error) {
     console.error('Login error:', error);

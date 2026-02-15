@@ -6,6 +6,10 @@ import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
 import { ArrowLeft, Building2 } from "lucide-react"
 import Link from "next/link"
+import { usePermissions } from "@/lib/hooks/usePermissions"
+import RequirePermission from "@/components/RequirePermission"
+import { PERMISSIONS } from "@/lib/permissions"
+
 
 interface User {
   id: number
@@ -16,6 +20,7 @@ interface User {
 }
 
 export default function AddCompanyPage() {
+  const { hasPermission, hasAnyPermission } = usePermissions()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -98,6 +103,7 @@ export default function AddCompanyPage() {
 
   return (
     <AdminLayout>
+      <RequirePermission permission={PERMISSIONS.COMPANIES_CREATE}>
       <div className="max-w-3xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -268,6 +274,7 @@ export default function AddCompanyPage() {
           </form>
         </div>
       </div>
+      </RequirePermission>
     </AdminLayout>
   )
 }

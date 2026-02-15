@@ -43,11 +43,13 @@ export default function LoginPage() {
           sessionStorage.setItem("userData", JSON.stringify(user))
         }
 
+        console.log('Login successful, user:', user)
+        // Use window.location for full page reload to ensure cookie is available
         // Redirect based on role
         if (user.role === "SUPER_ADMIN" || user.role === "OWNER" || user.role === "DEVELOPER") {
-          router.push("/admin/control-center")
+          window.location.href = "/admin/control-center"
         } else {
-          router.push("/admin/dashboard")
+          window.location.href = "/admin/dashboard"
         }
       } else {
         setError(response.data.message || "Login failed")

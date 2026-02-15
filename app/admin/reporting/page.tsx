@@ -25,7 +25,9 @@ import {
 } from "recharts"
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-
+import RequirePermission from "@/components/RequirePermission"
+import { PERMISSIONS } from "@/lib/permissions"
+import { usePermissions } from "@/lib/hooks/usePermissions"
 // Utility for class merging
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -117,7 +119,7 @@ export default function ReportingPage() {
   const [reportData, setReportData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
-  
+  const { hasPermission, hasAnyPermission } = usePermissions()
   // Date State
   const [dateRange, setDateRange] = useState({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
@@ -226,6 +228,7 @@ export default function ReportingPage() {
 
   return (
     <AdminLayout>
+      <RequirePermission permissions={[PERMISSIONS.REPORTS_VIEW]}>
       <div className="max-w-7xl mx-auto space-y-8 pb-12">
         
         {/* Header & Controls */}
@@ -474,6 +477,8 @@ export default function ReportingPage() {
           </div>
         )}
       </div>
+      </RequirePermission>
     </AdminLayout>
+    
   )
 }

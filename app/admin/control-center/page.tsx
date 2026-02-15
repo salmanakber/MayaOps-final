@@ -18,7 +18,9 @@ import {
   ShieldCheck,
   Briefcase
 } from "lucide-react"
-
+import RequirePermission from "@/components/RequirePermission"
+import { PERMISSIONS } from "@/lib/permissions"
+import { usePermissions } from "@/lib/hooks/usePermissions"
 // --- Types ---
 interface Company {
   id: number
@@ -39,6 +41,7 @@ interface BillingSummary {
 type TabType = "companies" | "billing"  | "audit"
 
 export default function AdminControlCenter() {
+  const { hasPermission, hasAnyPermission } = usePermissions()
   const [companies, setCompanies] = useState<Company[]>([])
   const [billingSummary, setBillingSummary] = useState<BillingSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -97,6 +100,7 @@ export default function AdminControlCenter() {
 
   return (
     <AdminLayout>
+      <RequirePermission permission={PERMISSIONS.CONTROL_CENTER_VIEW}>
       <div className="max-w-7xl mx-auto space-y-8 pb-12">
         
         {/* Header Section */}
@@ -269,6 +273,7 @@ export default function AdminControlCenter() {
         )}
 
       </div>
+      </RequirePermission>
     </AdminLayout>
   )
 }

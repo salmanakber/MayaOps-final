@@ -1,5 +1,8 @@
 "use client";
 
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
+import RequirePermission from "@/components/RequirePermission";
 import { useState } from "react";
 
 export default function AccountDeletionPage() {
@@ -11,6 +14,8 @@ export default function AccountDeletionPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scheduledDate, setScheduledDate] = useState<string | null>(null);
+  const { hasPermission, hasAnyPermission } = usePermissions()
+ 
 
   const handleSendOtp = async () => {
     setError(null);
@@ -94,6 +99,7 @@ export default function AccountDeletionPage() {
 
   // --- NEW UI DESIGN ---
   return (
+    <RequirePermission permission={PERMISSIONS.DELETE_ACCOUNT_REQUEST}>
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 sm:p-6 font-sans">
       
       {/* Brand / Header Area */}
@@ -277,5 +283,6 @@ export default function AccountDeletionPage() {
         </div>
       </div>
     </div>
+    </RequirePermission>
   );
 }

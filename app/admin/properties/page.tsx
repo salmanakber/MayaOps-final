@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
+import ProtectedPage from "@/components/ProtectedPage"
 import Link from "next/link"
 import { 
   Building2, 
@@ -21,6 +22,8 @@ import {
   CheckCircle2,
   XCircle
 } from "lucide-react"
+import { usePermissions } from "@/lib/hooks/usePermissions"
+import { PERMISSIONS } from "@/lib/permissions"
 
 // --- Types ---
 interface Property {
@@ -48,6 +51,7 @@ interface Company {
 }
 
 export default function PropertiesPage() {
+  const { hasPermission } = usePermissions()
   const [properties, setProperties] = useState<Property[]>([])
   const [companies, setCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
@@ -157,7 +161,8 @@ export default function PropertiesPage() {
 
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto space-y-8 pb-12">
+      <ProtectedPage>
+        <div className="max-w-7xl mx-auto space-y-8 pb-12">
         
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -165,13 +170,15 @@ export default function PropertiesPage() {
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Properties</h1>
             <p className="text-sm text-gray-500 mt-1">Manage your real estate assets and assignments.</p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            <Plus size={18} />
-            Add Property
-          </button>
+          {hasPermission(PERMISSIONS.PROPERTIES_CREATE) && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+              <Plus size={18} />
+              Add Property
+            </button>
+          )}
         </div>
 
         {/* Toolbar */}
@@ -290,34 +297,40 @@ export default function PropertiesPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {hasPermission(PERMISSIONS.PROPERTIES_EDIT) && (
                             <button
-                                onClick={() => {
-                                    setSelectedProperty(property)
-                                    setShowEditModal(true)
-                                }}
-                                className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                title="Edit Property"
+                              onClick={() => {
+                                setSelectedProperty(property)
+                                setShowEditModal(true)
+                              }}
+                              className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="Edit Property"
                             >
-                                <Edit2 size={16} />
+                              <Edit2 size={16} />
                             </button>
+                          )}
+                          {hasPermission(PERMISSIONS.PROPERTIES_EDIT) && (
                             <button
-                                onClick={() => handleToggleActive(property)}
-                                className={`p-2 rounded-lg transition-colors ${
-                                    property.isActive 
-                                    ? "text-gray-400 hover:text-orange-600 hover:bg-orange-50" 
-                                    : "text-gray-400 hover:text-green-600 hover:bg-green-50"
-                                }`}
-                                title={property.isActive ? "Deactivate" : "Activate"}
+                              onClick={() => handleToggleActive(property)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                property.isActive 
+                                ? "text-gray-400 hover:text-orange-600 hover:bg-orange-50" 
+                                : "text-gray-400 hover:text-green-600 hover:bg-green-50"
+                              }`}
+                              title={property.isActive ? "Deactivate" : "Activate"}
                             >
-                                <Power size={16} />
+                              <Power size={16} />
                             </button>
+                          )}
+                          {hasPermission(PERMISSIONS.PROPERTIES_DELETE) && (
                             <button
-                                onClick={() => handleDelete(property.id)}
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Delete Property"
+                              onClick={() => handleDelete(property.id)}
+                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete Property"
                             >
-                                <Trash2 size={16} />
+                              <Trash2 size={16} />
                             </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -359,6 +372,7 @@ export default function PropertiesPage() {
           }}
         />
       )}
+      </ProtectedPage>
     </AdminLayout>
   )
 }

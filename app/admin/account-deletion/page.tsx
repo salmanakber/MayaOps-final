@@ -4,6 +4,9 @@ import { useEffect, useState } from "react"
 import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
 import { AlertTriangle, CalendarClock, CheckCircle2, Loader2, XCircle } from "lucide-react"
+import { PERMISSIONS } from "@/lib/permissions";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import RequirePermission from "@/components/RequirePermission";
 
 interface DeletionRequest {
   id: number
@@ -31,7 +34,7 @@ export default function AccountDeletionAdminPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending")
   const [selected, setSelected] = useState<DeletionRequest | null>(null)
   const [updating, setUpdating] = useState(false)
-
+  const { hasPermission } = usePermissions()
   const loadRequests = async () => {
     try {
       setLoading(true)
@@ -108,6 +111,7 @@ export default function AccountDeletionAdminPage() {
   }
 
   return (
+    <RequirePermission permission={PERMISSIONS.DELETE_ACCOUNT_REQUEST}>
     <AdminLayout>
       <div className="max-w-6xl mx-auto">
         {/* Header */}
@@ -320,6 +324,7 @@ export default function AccountDeletionAdminPage() {
         </div>
       </div>
     </AdminLayout>
+    </RequirePermission>
   )
 }
 

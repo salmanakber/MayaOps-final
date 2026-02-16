@@ -1,6 +1,7 @@
 import { google } from "googleapis";
 import prisma from "./prisma";
 import { extractSpreadsheetId, verifyGoogleSheet, fetchSheetData, fetchSheetHeaders } from "./google-sheets-tasks";
+import { geocodeAddress } from "./geocoding";
 
 const sheets = google.sheets("v4");
 
@@ -180,6 +181,26 @@ export async function importPropertiesFromSheet(
         // totalPrice = unitCount * pricePerUnit (from setting)
         const totalPrice = finalPricePerUnit * unitCount;
 
+        // Geocode address to get latitude and longitude
+        let latitude: number | null = null;
+        let longitude: number | null = null;
+        
+        if (propertyRow.address) {
+          try {
+            const geocodeResult = await geocodeAddress(propertyRow.address, propertyRow.postcode || undefined);
+            if (geocodeResult) {
+              latitude = geocodeResult.lat;
+              longitude = geocodeResult.lng;
+              console.log(`[Property Import] ✓ Geocoded address: ${propertyRow.address} -> (${latitude}, ${longitude})`);
+            } else {
+              console.warn(`[Property Import] ⚠ Failed to geocode address: ${propertyRow.address}`);
+            }
+          } catch (geocodeError) {
+            console.error(`[Property Import] Error geocoding address ${propertyRow.address}:`, geocodeError);
+            // Continue without coordinates if geocoding fails
+          }
+        }
+
         // Check if property already exists by unique identifier (property ID stored in sheetUniqueColumn)
         // We need to find properties where sheetUniqueColumn matches the uniqueValue
         let existingProperty = null;
@@ -214,6 +235,8 @@ export async function importPropertiesFromSheet(
           totalPrice,
           notes: propertyRow.notes || null,
           isActive: true,
+          latitude: latitude !== null ? latitude : undefined,
+          longitude: longitude !== null ? longitude : undefined,
           // @ts-ignore - Field exists in schema but types may not be updated
           sheetUniqueColumn: uniqueValue || null,
         };

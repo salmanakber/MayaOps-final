@@ -588,6 +588,31 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
               </>
             )}
 
+            {/* Logout Button */}
+            <button
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+                  if (token) {
+                    // Call logout API to expire all sessions
+                    await axios.post("/api/auth/logout", {}, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    })
+                  }
+                } catch (error) {
+                  console.error("Error during logout:", error)
+                } finally {
+                  // Always clear local storage and redirect
+                  handleLogout()
+                }
+              }}
+              className="hidden sm:flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+              title="Logout and expire all sessions"
+            >
+              <LogOut size={16} />
+              <span>Logout</span>
+            </button>
+
             {/* User Dropdown */}
             <div className="relative">
               <button

@@ -69,7 +69,7 @@ export default function SupportPage() {
   // NEW DESIGN & LAYOUT
   // ---------------------------------------------------------
   return (
-    <RequirePermission permission={PERMISSIONS.SUPPORT_TICKETS_CREATE}>
+  
     <main className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-4 py-12 font-sans text-gray-900">
       
       {/* Brand Header */}
@@ -249,6 +249,6 @@ export default function SupportPage() {
         </div>
       </div>
     </main>
-    </RequirePermission>
+    
   );
 }

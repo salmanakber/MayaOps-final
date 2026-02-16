@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { PERMISSIONS } from "@/lib/permissions";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import RequirePermission from "@/components/RequirePermission";
 
 interface TicketMessage {
   id: number;
@@ -22,6 +25,7 @@ interface TicketData {
 }
 
 export default function PublicTicketPage() {
+  const { hasPermission } = usePermissions()
   const params = useParams<{ token: string }>();
   const token = params?.token;
 
@@ -128,6 +132,7 @@ export default function PublicTicketPage() {
   const customerName = ticket.name || ticket.email;
 
   return (
+    <RequirePermission permission={PERMISSIONS.SUPPORT_TICKETS_VIEW}>
     <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-200 p-6 sm:p-8">
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mb-1">
@@ -245,6 +250,7 @@ export default function PublicTicketPage() {
         </form>
       </div>
     </main>
+    </RequirePermission>
   );
 }
 

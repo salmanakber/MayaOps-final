@@ -108,15 +108,29 @@ export const recurringJobsWorker = new Worker(
 
       // Step 3: Task Creation
       // Note: recurringJobId field will be available after running: npx prisma migrate dev && npx prisma generate
+      // Parse assignedUserIds from JSON string if present
+      let assignedUserIds: number[] = [];
+      if (recurringJob.assignedUserIds) {
+        try {
+          assignedUserIds = JSON.parse(recurringJob.assignedUserIds);
+        } catch (e) {
+          console.error(`[Recurring Jobs Worker] Failed to parse assignedUserIds for job ${recurringJobId}:`, e);
+        }
+      }
+
       const task = await (tx.task as any).create({
         data: {
           companyId: recurringJob.companyId,
           propertyId: recurringJob.propertyId,
           title: recurringJob.taskTitle,
           description: recurringJob.taskDescription,
-          status: TaskStatus.DRAFT,
+          status: assignedUserIds.length > 0 ? TaskStatus.ASSIGNED : TaskStatus.DRAFT,
           scheduledDate: scheduledTimestamp,
           recurringJobId: recurringJobId,
+          assignedUserId: assignedUserIds.length > 0 ? assignedUserIds[0] : null,
+          taskAssignments: assignedUserIds.length > 0 ? {
+            create: assignedUserIds.map((userId: number) => ({ userId })),
+          } : undefined,
         },
       });
 

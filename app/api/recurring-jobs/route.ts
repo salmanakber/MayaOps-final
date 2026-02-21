@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
       data: jobs.map(job => ({
         ...job,
         allowedDaysOfWeek: job.allowedDaysOfWeek ? JSON.parse(job.allowedDaysOfWeek) : null,
+        assignedUserIds: job.assignedUserIds ? JSON.parse(job.assignedUserIds) : null,
         nextRunAt: job.nextRunAt.toISOString(),
         endDate: job.endDate?.toISOString() || null,
         createdAt: job.createdAt.toISOString(),
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
       maxOccurrences,
       taskTitle,
       taskDescription,
+      assignedUserIds,
     } = body;
 
     if (!propertyId || !recurrenceType || !taskTitle || !nextRunAt) {
@@ -175,6 +177,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: validation.error }, { status: 400 });
     }
 
+    // Validate assignedUserIds if provided
+    let assignedUserIdsStr: string | null = null;
+    if (assignedUserIds && Array.isArray(assignedUserIds) && assignedUserIds.length > 0) {
+      // Validate that all user IDs are valid cleaners in the company
+      const users = await prisma.user.findMany({
+        where: {
+          id: { in: assignedUserIds.map((id: any) => Number(id)) },
+          companyId,
+          role: UserRole.CLEANER,
+        },
+        select: { id: true },
+      });
+
+      if (users.length !== assignedUserIds.length) {
+        return NextResponse.json({ success: false, message: 'One or more assigned cleaners not found or not in company' }, { status: 400 });
+      }
+
+      assignedUserIdsStr = JSON.stringify(assignedUserIds.map((id: any) => Number(id)));
+    }
+
     // Create recurring job
     // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
     const recurringJob = await (prisma as any).recurringJob.create({
@@ -189,6 +211,7 @@ export async function POST(request: NextRequest) {
         maxOccurrences: maxOccurrences || null,
         taskTitle,
         taskDescription: taskDescription || null,
+        assignedUserIds: assignedUserIdsStr,
         active: true,
         currentOccurrenceCount: 0,
       },
@@ -207,6 +230,7 @@ export async function POST(request: NextRequest) {
         data: {
           ...recurringJob,
           allowedDaysOfWeek: recurringJob.allowedDaysOfWeek ? JSON.parse(recurringJob.allowedDaysOfWeek) : null,
+          assignedUserIds: recurringJob.assignedUserIds ? JSON.parse(recurringJob.assignedUserIds) : null,
           nextRunAt: recurringJob.nextRunAt.toISOString(),
           endDate: recurringJob.endDate?.toISOString() || null,
           createdAt: recurringJob.createdAt.toISOString(),
@@ -221,6 +245,7 @@ export async function POST(request: NextRequest) {
       data: {
         ...recurringJob,
         allowedDaysOfWeek: recurringJob.allowedDaysOfWeek ? JSON.parse(recurringJob.allowedDaysOfWeek) : null,
+        assignedUserIds: recurringJob.assignedUserIds ? JSON.parse(recurringJob.assignedUserIds) : null,
         nextRunAt: recurringJob.nextRunAt.toISOString(),
         endDate: recurringJob.endDate?.toISOString() || null,
         createdAt: recurringJob.createdAt.toISOString(),

@@ -226,6 +226,7 @@ model RecurringJob {
   lastGeneratedTaskId     Int?     @map("last_generated_task_id") // Reference to last created task
   taskTitle               String    @map("task_title") // Title for generated tasks
   taskDescription         String?   @db.Text @map("task_description") // Description for generated tasks
+  assignedUserIds         String?   @db.Text @map("assigned_user_ids") // JSON array of user IDs to assign tasks to
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
 

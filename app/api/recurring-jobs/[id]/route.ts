@@ -66,6 +66,7 @@ export async function GET(
       data: {
         ...job,
         allowedDaysOfWeek: job.allowedDaysOfWeek ? JSON.parse(job.allowedDaysOfWeek) : null,
+        assignedUserIds: job.assignedUserIds ? JSON.parse(job.assignedUserIds) : null,
         nextRunAt: job.nextRunAt.toISOString(),
         endDate: job.endDate?.toISOString() || null,
         createdAt: job.createdAt.toISOString(),
@@ -141,6 +142,7 @@ export async function PUT(
       taskTitle,
       taskDescription,
       active,
+      assignedUserIds,
     } = body;
 
     // Build update data
@@ -156,6 +158,29 @@ export async function PUT(
     if (taskTitle !== undefined) updateData.taskTitle = taskTitle;
     if (taskDescription !== undefined) updateData.taskDescription = taskDescription;
     if (active !== undefined) updateData.active = active;
+    
+    // Handle assignedUserIds
+    if (assignedUserIds !== undefined) {
+      if (assignedUserIds && Array.isArray(assignedUserIds) && assignedUserIds.length > 0) {
+        // Validate that all user IDs are valid cleaners in the company
+        const users = await prisma.user.findMany({
+          where: {
+            id: { in: assignedUserIds.map((id: any) => Number(id)) },
+            companyId: existingJob.companyId,
+            role: UserRole.CLEANER,
+          },
+          select: { id: true },
+        });
+
+        if (users.length !== assignedUserIds.length) {
+          return NextResponse.json({ success: false, message: 'One or more assigned cleaners not found or not in company' }, { status: 400 });
+        }
+
+        updateData.assignedUserIds = JSON.stringify(assignedUserIds.map((id: any) => Number(id)));
+      } else {
+        updateData.assignedUserIds = null;
+      }
+    }
 
     // If nextRunAt is being updated, recalculate it
     if (nextRunAt !== undefined) {
@@ -218,6 +243,7 @@ export async function PUT(
       data: {
         ...updatedJob,
         allowedDaysOfWeek: updatedJob.allowedDaysOfWeek ? JSON.parse(updatedJob.allowedDaysOfWeek) : null,
+        assignedUserIds: updatedJob.assignedUserIds ? JSON.parse(updatedJob.assignedUserIds) : null,
         nextRunAt: updatedJob.nextRunAt.toISOString(),
         endDate: updatedJob.endDate?.toISOString() || null,
         createdAt: updatedJob.createdAt.toISOString(),

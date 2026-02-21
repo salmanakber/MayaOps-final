@@ -1,7 +1,26 @@
 import prisma from './prisma';
-import { RecurringJob } from '@prisma/client';
 
 export type RecurrenceType = 'interval' | 'weekly';
+
+// Define RecurringJob type locally to avoid Prisma client dependency until migration is run
+export interface RecurringJob {
+  id: number;
+  propertyId: number;
+  companyId: number;
+  recurrenceType: RecurrenceType;
+  intervalDays: number | null;
+  allowedDaysOfWeek: string | null;
+  nextRunAt: Date;
+  endDate: Date | null;
+  maxOccurrences: number | null;
+  currentOccurrenceCount: number;
+  active: boolean;
+  lastGeneratedTaskId: number | null;
+  taskTitle: string;
+  taskDescription: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 /**
  * Calculate next run time for interval-based recurrence

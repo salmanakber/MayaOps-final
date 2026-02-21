@@ -11,7 +11,8 @@ export async function recoverRecurringJobs(): Promise<void> {
 
   try {
     // Fetch all active recurring jobs
-    const activeJobs = await prisma.recurringJob.findMany({
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const activeJobs = await (prisma as any).recurringJob.findMany({
       where: {
         active: true,
       },
@@ -24,6 +25,7 @@ export async function recoverRecurringJobs(): Promise<void> {
         endDate: true,
         maxOccurrences: true,
         currentOccurrenceCount: true,
+        active: true,
       },
     });
 
@@ -38,7 +40,7 @@ export async function recoverRecurringJobs(): Promise<void> {
         // Check if job should still be active
         if (!shouldJobBeActive(job)) {
           // Auto-disable expired jobs
-          await prisma.recurringJob.update({
+          await (prisma as any).recurringJob.update({
             where: { id: job.id },
             data: { active: false },
           });

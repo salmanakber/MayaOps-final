@@ -1,6 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import prisma from './prisma';
-import { RecurringJob, TaskStatus, UserRole } from '@prisma/client';
+import { TaskStatus, UserRole } from '@prisma/client';
+import type { RecurringJob } from './recurring-jobs';
 import { 
   calculateNextRunAt, 
   shouldJobBeActive,
@@ -43,10 +44,11 @@ export const recurringJobsWorker = new Worker(
     
     console.log(`[Recurring Jobs Worker] Processing job ${recurringJobId}`);
 
-    // Use a transaction to ensure atomicity
+      // Use a transaction to ensure atomicity
     return await prisma.$transaction(async (tx) => {
       // Step 1: Load & Lock
-      const recurringJob = await tx.recurringJob.findUnique({
+      // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+      const recurringJob = await (tx as any).recurringJob.findUnique({
         where: { id: recurringJobId },
         include: {
           property: {
@@ -72,7 +74,7 @@ export const recurringJobsWorker = new Worker(
 
       if (!shouldJobBeActive(recurringJob)) {
         // Auto-disable expired jobs
-        await tx.recurringJob.update({
+        await (tx as any).recurringJob.update({
           where: { id: recurringJobId },
           data: { active: false },
         });
@@ -94,7 +96,7 @@ export const recurringJobsWorker = new Worker(
         console.log(`[Recurring Jobs Worker] Task already exists for job ${recurringJobId} at ${scheduledTimestamp.toISOString()}, skipping`);
         // Still update nextRunAt and reschedule
         const nextRunAt = calculateNextRunAt(recurringJob);
-        await tx.recurringJob.update({
+        await (tx as any).recurringJob.update({
           where: { id: recurringJobId },
           data: { nextRunAt },
         });
@@ -120,7 +122,7 @@ export const recurringJobsWorker = new Worker(
 
       // Step 4: Update Recurring Job
       const nextRunAt = calculateNextRunAt(recurringJob);
-      const updatedJob = await tx.recurringJob.update({
+      const updatedJob = await (tx as any).recurringJob.update({
         where: { id: recurringJobId },
         data: {
           currentOccurrenceCount: recurringJob.currentOccurrenceCount + 1,
@@ -173,7 +175,7 @@ export const recurringJobsWorker = new Worker(
       setImmediate(async () => {
         try {
           // Check if job is still active before rescheduling
-          const stillActive = await prisma.recurringJob.findUnique({
+          const stillActive = await (prisma as any).recurringJob.findUnique({
             where: { id: recurringJobId },
             select: { active: true },
           });

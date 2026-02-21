@@ -4,6 +4,9 @@ import { useEffect, useState } from "react"
 import axios from "axios"
 import AdminLayout from "@/components/AdminLayout"
 import { Mail, MessageSquare, CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react"
+import { PERMISSIONS } from "@/lib/permissions";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import RequirePermission from "@/components/RequirePermission";
 
 interface SupportTicketMessage {
   id: number
@@ -35,7 +38,7 @@ export default function SupportTicketsPage() {
   const [replySending, setReplySending] = useState(false)
   const [sendEmailToUser, setSendEmailToUser] = useState(true)
   const [statusUpdating, setStatusUpdating] = useState(false)
-
+  const { hasPermission } = usePermissions()
   const loadTickets = async () => {
     try {
       setLoading(true)
@@ -128,6 +131,7 @@ export default function SupportTicketsPage() {
   }
 
   return (
+    <RequirePermission permission={PERMISSIONS.SUPPORT_TICKETS_CREATE}>
     <AdminLayout>
       <div className="max-w-6xl mx-auto">
         {/* Header */}
@@ -384,6 +388,7 @@ export default function SupportTicketsPage() {
         </div>
       </div>
     </AdminLayout>
+    </RequirePermission>
   )
 }
 

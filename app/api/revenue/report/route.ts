@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/rbac';
 
+
 /**
  * GET /api/revenue/report
  * Get detailed revenue and expense report with date filters

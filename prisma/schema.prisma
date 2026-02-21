@@ -97,6 +97,7 @@ model Company {
   expenses                Expense[]
   checklistTemplates      ChecklistTemplate[]
   workingHoursSubmissions WorkingHoursSubmission[] @relation("WorkingHoursSubmissions")
+  recurringJobs            RecurringJob[]
 
   @@map("companies")
 }
@@ -130,6 +131,7 @@ model Property {
   tasks          Task[]
   noteRecords    Note[]                  @relation("PropertyNotes")
   requiredSkills PropertyRequiredSkill[]
+  recurringJobs  RecurringJob[]
 
   @@index([companyId])
   @@index([sheetSyncEnabled])
@@ -144,6 +146,7 @@ model Task {
   propertyId               Int        @map("property_id")
   assignedUserId           Int?       @map("assigned_user_id")
   parentTaskId             Int?       @map("parent_task_id") // For recurring task series linkage
+  recurringJobId           Int?       @map("recurring_job_id") // Reference to recurring job that created this task
   title                    String
   description              String?    @db.Text
   status                   TaskStatus @default(DRAFT)
@@ -166,6 +169,7 @@ model Task {
   assignedUser            User?                        @relation("AssignedTasks", fields: [assignedUserId], references: [id])
   parentTask              Task?                        @relation("RecurringSeries", fields: [parentTaskId], references: [id])
   childTasks              Task[]                       @relation("RecurringSeries")
+  recurringJob            RecurringJob?                @relation(fields: [recurringJobId], references: [id])
   taskAssignments         TaskAssignment[] // Multiple cleaner assignments
   photos                  Photo[]
   notes                   Note[]
@@ -186,6 +190,7 @@ model Task {
   @@index([status])
   @@index([scheduledDate])
   @@index([parentTaskId])
+  @@index([recurringJobId])
   @@map("tasks")
 }
 
@@ -203,6 +208,37 @@ model TaskAssignment {
   @@index([taskId])
   @@index([userId])
   @@map("task_assignments")
+}
+
+// Recurring Job model for automatic task generation
+model RecurringJob {
+  id                      Int       @id @default(autoincrement())
+  propertyId              Int       @map("property_id")
+  companyId               Int       @map("company_id")
+  recurrenceType          String    @map("recurrence_type") // "interval" | "weekly"
+  intervalDays            Int?      @map("interval_days") // Required for interval type, must be > 0
+  allowedDaysOfWeek       String?   @db.Text @map("allowed_days_of_week") // JSON array of day numbers [1,4] for weekly type (1=Monday, 7=Sunday)
+  nextRunAt               DateTime  @map("next_run_at") // UTC timestamp, indexed
+  endDate                 DateTime? @map("end_date") // Optional end date
+  maxOccurrences          Int?      @map("max_occurrences") // Optional max number of occurrences
+  currentOccurrenceCount  Int       @default(0) @map("current_occurrence_count")
+  active                  Boolean   @default(true) // If true, next_run_at must never be null
+  lastGeneratedTaskId     Int?     @map("last_generated_task_id") // Reference to last created task
+  taskTitle               String    @map("task_title") // Title for generated tasks
+  taskDescription         String?   @db.Text @map("task_description") // Description for generated tasks
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  property            Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generatedTasks      Task[]    // Tasks created by this recurring job
+
+  @@index([propertyId])
+  @@index([companyId])
+  @@index([active, nextRunAt]) // Critical index for recovery queries
+  @@index([nextRunAt]) // For efficient scheduling queries
+  @@map("recurring_jobs")
 }
 
 // Account deletion requests (for GDPR / app store data deletion compliance)

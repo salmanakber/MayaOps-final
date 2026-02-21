@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    console.log('billingRecords', billingRecords);
+    
 
     // Calculate summary using Prisma aggregations
     const thirtyDaysAgo = new Date();

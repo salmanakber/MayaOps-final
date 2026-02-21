@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
   const permissionCheck = await requirePermission(request, PERMISSIONS.TASKS_CREATE);
   console.log('permissionCheck', permissionCheck);
   if (!permissionCheck.allowed) {
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN && role !== UserRole.MANAGER) {
       return NextResponse.json(
         { success: false, message: permissionCheck.message },
         { status: 403 }
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
 
     // Determine company ID
     let companyId: number | null = null;
-    if (role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN) {
+    if (role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN || role === UserRole.MANAGER) {
       companyId = bodyCompanyId ?? null;
       if (!companyId) {
         const property = await prisma.property.findUnique({

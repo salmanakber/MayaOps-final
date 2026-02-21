@@ -96,7 +96,7 @@ export async function PUT(
   // Check permission
   const permissionCheck = await requirePermission(request, PERMISSIONS.TASKS_EDIT);
   if (!permissionCheck.allowed) {
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN && role !== UserRole.MANAGER) {
       return NextResponse.json(
         { success: false, message: permissionCheck.message },
         { status: 403 }
@@ -112,7 +112,7 @@ export async function PUT(
 
     // Determine company scope
     let companyId: number | null = null;
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN && role !== UserRole.MANAGER) {
       companyId = requireCompanyScope(tokenUser);
       if (!companyId) {
         return NextResponse.json({ success: false, message: 'No company scope' }, { status: 403 });
@@ -289,7 +289,7 @@ export async function DELETE(
 
     // Determine company scope
     let companyId: number | null = null;
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN && role !== UserRole.MANAGER) {
       companyId = requireCompanyScope(tokenUser);
       if (!companyId) {
         return NextResponse.json({ success: false, message: 'No company scope' }, { status: 403 });

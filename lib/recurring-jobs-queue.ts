@@ -1,14 +1,27 @@
 import { Queue, QueueOptions } from 'bullmq';
-import IORedis from 'ioredis';
 
-// Redis connection for BullMQ
-const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  maxRetriesPerRequest: null,
-});
-
-// Queue options
+// Queue options - use connection string/options instead of IORedis instance
+// This avoids type conflicts between BullMQ's bundled ioredis and separately installed ioredis
 const queueOptions: QueueOptions = {
-  connection,
+  connection: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+    // If REDIS_URL is provided, parse it
+    ...(process.env.REDIS_URL ? (() => {
+      try {
+        const url = new URL(process.env.REDIS_URL);
+        return {
+          host: url.hostname,
+          port: parseInt(url.port) || 6379,
+          password: url.password || undefined,
+        };
+      } catch {
+        return {};
+      }
+    })() : {}),
+    maxRetriesPerRequest: null,
+  },
   defaultJobOptions: {
     attempts: 3,
     backoff: {

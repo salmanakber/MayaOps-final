@@ -1,5 +1,4 @@
 import { Worker, Job } from 'bullmq';
-import IORedis from 'ioredis';
 import prisma from './prisma';
 import { RecurringJob, TaskStatus, UserRole } from '@prisma/client';
 import { 
@@ -10,10 +9,29 @@ import {
 import { scheduleRecurringJobExecution, removeScheduledRecurringJob } from './recurring-jobs-queue';
 import { createNotification } from './notifications';
 
-// Redis connection for BullMQ
-const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
-  maxRetriesPerRequest: null,
-});
+// Redis connection options for BullMQ - use connection object instead of IORedis instance
+// This avoids type conflicts between BullMQ's bundled ioredis and separately installed ioredis
+const connectionOptions = (() => {
+  if (process.env.REDIS_URL) {
+    try {
+      const url = new URL(process.env.REDIS_URL);
+      return {
+        host: url.hostname,
+        port: parseInt(url.port) || 6379,
+        password: url.password || undefined,
+        maxRetriesPerRequest: null,
+      };
+    } catch {
+      // Fallback if URL parsing fails
+    }
+  }
+  return {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
+    maxRetriesPerRequest: null,
+  };
+})();
 
 /**
  * Worker that processes recurring job executions
@@ -182,7 +200,7 @@ export const recurringJobsWorker = new Worker(
     });
   },
   {
-    connection,
+    connection: connectionOptions,
     concurrency: 5, // Process up to 5 jobs concurrently
     limiter: {
       max: 100, // Max 100 jobs per interval

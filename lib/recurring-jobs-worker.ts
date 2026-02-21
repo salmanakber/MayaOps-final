@@ -85,7 +85,8 @@ export const recurringJobsWorker = new Worker(
       // Step 2: Idempotency Check
       // Check if a task has already been created for this scheduled timestamp
       const scheduledTimestamp = recurringJob.nextRunAt;
-      const existingTask = await tx.task.findFirst({
+      // Note: recurringJobId field will be available after running: npx prisma migrate dev && npx prisma generate
+      const existingTask = await (tx.task as any).findFirst({
         where: {
           recurringJobId: recurringJobId,
           scheduledDate: scheduledTimestamp,
@@ -106,7 +107,8 @@ export const recurringJobsWorker = new Worker(
       }
 
       // Step 3: Task Creation
-      const task = await tx.task.create({
+      // Note: recurringJobId field will be available after running: npx prisma migrate dev && npx prisma generate
+      const task = await (tx.task as any).create({
         data: {
           companyId: recurringJob.companyId,
           propertyId: recurringJob.propertyId,
@@ -180,13 +182,12 @@ export const recurringJobsWorker = new Worker(
             select: { active: true },
           });
 
-          if (stillActive?.active && shouldJobBeActive(updatedJob)) {
+          if (stillActive?.active && shouldJobBeActive(updatedJob as any)) {
             await scheduleRecurringJobExecution(recurringJobId, nextRunAt);
             console.log(`[Recurring Jobs Worker] Rescheduled next execution for job ${recurringJobId} at ${nextRunAt.toISOString()}`);
           } else {
             console.log(`[Recurring Jobs Worker] Job ${recurringJobId} is no longer active, not rescheduling`);
           }
-        }
         } catch (rescheduleError) {
           console.error(`[Recurring Jobs Worker] Error rescheduling job ${recurringJobId}:`, rescheduleError);
         }

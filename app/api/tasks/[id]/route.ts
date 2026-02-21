@@ -138,7 +138,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const permissionCheck = await requirePermission(request, PERMISSIONS.TASKS_EDIT);
   if (!permissionCheck.allowed) {
     // Allow OWNER, DEVELOPER, and SUPER_ADMIN to bypass permission check
-    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN && role !== UserRole.MANAGER) {
       return NextResponse.json(
         { success: false, message: permissionCheck.message },
         { status: 403 }

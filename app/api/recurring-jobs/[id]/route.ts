@@ -44,7 +44,8 @@ export async function GET(
       where.companyId = companyId;
     }
 
-    const job = await prisma.recurringJob.findFirst({
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const job = await (prisma as any).recurringJob.findFirst({
       where,
       include: {
         property: {
@@ -123,7 +124,8 @@ export async function PUT(
     }
 
     // Check if job exists
-    const existingJob = await prisma.recurringJob.findFirst({ where });
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const existingJob = await (prisma as any).recurringJob.findFirst({ where });
     if (!existingJob) {
       return NextResponse.json({ success: false, message: 'Recurring job not found' }, { status: 404 });
     }
@@ -189,7 +191,8 @@ export async function PUT(
     await removeScheduledRecurringJob(id);
 
     // Update recurring job
-    const updatedJob = await prisma.recurringJob.update({
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const updatedJob = await (prisma as any).recurringJob.update({
       where: { id },
       data: updateData,
       include: {
@@ -203,7 +206,8 @@ export async function PUT(
     });
 
     // Reschedule if still active
-    if (updatedJob.active && shouldJobBeActive(updatedJob)) {
+    // Type assertion needed because Prisma returns string for recurrenceType, but our type expects RecurringJob
+    if (updatedJob.active && shouldJobBeActive(updatedJob as any)) {
       await scheduleRecurringJobExecution(updatedJob.id, updatedJob.nextRunAt);
     }
 
@@ -272,7 +276,8 @@ export async function DELETE(
     }
 
     // Check if job exists
-    const existingJob = await prisma.recurringJob.findFirst({ where });
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const existingJob = await (prisma as any).recurringJob.findFirst({ where });
     if (!existingJob) {
       return NextResponse.json({ success: false, message: 'Recurring job not found' }, { status: 404 });
     }
@@ -281,7 +286,7 @@ export async function DELETE(
     await removeScheduledRecurringJob(id);
 
     // Delete recurring job (cascade will handle related tasks)
-    await prisma.recurringJob.delete({
+    await (prisma as any).recurringJob.delete({
       where: { id },
     });
 

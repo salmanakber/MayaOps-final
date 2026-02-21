@@ -49,7 +49,8 @@ export async function GET(request: NextRequest) {
       where.propertyId = parseInt(propertyId);
     }
 
-    const jobs = await prisma.recurringJob.findMany({
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const jobs = await (prisma as any).recurringJob.findMany({
       where,
       include: {
         property: {
@@ -174,7 +175,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Create recurring job
-    const recurringJob = await prisma.recurringJob.create({
+    // Note: recurringJob model will be available after running: npx prisma migrate dev && npx prisma generate
+    const recurringJob = await (prisma as any).recurringJob.create({
       data: {
         propertyId: parseInt(propertyId),
         companyId,

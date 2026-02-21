@@ -49,20 +49,29 @@ export async function scheduleRecurringJobExecution(
   recurringJobId: number,
   executeAt: Date
 ): Promise<void> {
-  const delay = Math.max(0, executeAt.getTime() - Date.now());
+  try {
+    const delay = Math.max(0, executeAt.getTime() - Date.now());
 
-  // Use recurringJobId as jobId to ensure uniqueness
-  // This prevents duplicate jobs for the same recurring job
-  await recurringJobsQueue.add(
-    'execute-recurring-job',
-    { recurringJobId },
-    {
-      jobId: `recurring-job-${recurringJobId}`,
-      delay,
+    // Use recurringJobId as jobId to ensure uniqueness
+    // This prevents duplicate jobs for the same recurring job
+    await recurringJobsQueue.add(
+      'execute-recurring-job',
+      { recurringJobId },
+      {
+        jobId: `recurring-job-${recurringJobId}`,
+        delay,
+      }
+    );
+
+    console.log(`[Recurring Jobs] Scheduled execution for job ${recurringJobId} at ${executeAt.toISOString()}`);
+  } catch (error: any) {
+    // Handle Redis connection errors gracefully
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+      console.error(`[Recurring Jobs] Redis connection failed. Please ensure Redis is running on ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || '6379'}`);
+      throw new Error('Redis is not running. Please start Redis server to enable recurring jobs.');
     }
-  );
-
-  console.log(`[Recurring Jobs] Scheduled execution for job ${recurringJobId} at ${executeAt.toISOString()}`);
+    throw error;
+  }
 }
 
 /**
@@ -75,7 +84,12 @@ export async function removeScheduledRecurringJob(recurringJobId: number): Promi
       await job.remove();
       console.log(`[Recurring Jobs] Removed scheduled job for recurring job ${recurringJobId}`);
     }
-  } catch (error) {
+  } catch (error: any) {
+    // Silently handle Redis connection errors when removing jobs
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+      console.warn(`[Recurring Jobs] Redis not available when removing job ${recurringJobId} - job may not exist in queue`);
+      return;
+    }
     console.error(`[Recurring Jobs] Error removing scheduled job for ${recurringJobId}:`, error);
   }
 }
@@ -87,7 +101,12 @@ export async function hasScheduledJob(recurringJobId: number): Promise<boolean> 
   try {
     const job = await recurringJobsQueue.getJob(`recurring-job-${recurringJobId}`);
     return job !== null;
-  } catch (error) {
+  } catch (error: any) {
+    // If Redis is not available, assume job doesn't exist
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('ECONNREFUSED')) {
+      console.warn(`[Recurring Jobs] Redis not available when checking job ${recurringJobId}`);
+      return false;
+    }
     console.error(`[Recurring Jobs] Error checking scheduled job for ${recurringJobId}:`, error);
     return false;
   }

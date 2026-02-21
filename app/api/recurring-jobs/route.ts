@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     // Determine company scope
     let targetCompanyId: number | null = null;
-    if (role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN) {
+    if (role === UserRole.OWNER || role === UserRole.MANAGER || role === UserRole.DEVELOPER || role === UserRole.SUPER_ADMIN) {
       if (companyId) {
         targetCompanyId = parseInt(companyId);
       }
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
 
   // Check permission
   const permissionCheck = await requirePermission(request, PERMISSIONS.TASKS_CREATE);
+  console.log('permissionCheck', permissionCheck);
   if (!permissionCheck.allowed) {
     if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
       return NextResponse.json(
@@ -194,9 +195,26 @@ export async function POST(request: NextRequest) {
     });
 
     // Schedule the first execution
-    await scheduleRecurringJobExecution(recurringJob.id, nextRunAtDate);
-
-    console.log(`[Recurring Jobs] Created recurring job ${recurringJob.id} for property ${propertyId}`);
+    try {
+      await scheduleRecurringJobExecution(recurringJob.id, nextRunAtDate);
+      console.log(`[Recurring Jobs] Created recurring job ${recurringJob.id} for property ${propertyId}`);
+    } catch (scheduleError: any) {
+      // If Redis is not available, still create the job but log the error
+      console.error(`[Recurring Jobs] Failed to schedule job ${recurringJob.id}:`, scheduleError);
+      // Return a warning but don't fail the request
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...recurringJob,
+          allowedDaysOfWeek: recurringJob.allowedDaysOfWeek ? JSON.parse(recurringJob.allowedDaysOfWeek) : null,
+          nextRunAt: recurringJob.nextRunAt.toISOString(),
+          endDate: recurringJob.endDate?.toISOString() || null,
+          createdAt: recurringJob.createdAt.toISOString(),
+          updatedAt: recurringJob.updatedAt.toISOString(),
+        },
+        warning: scheduleError.message || 'Recurring job created but scheduling failed. Please ensure Redis is running.',
+      }, { status: 201 });
+    }
 
     return NextResponse.json({
       success: true,

@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   try {
     const companyIdParam = searchParams.get("companyId")
     let companyId: number | null = null
-    if (role === UserRole.SUPER_ADMIN || role === UserRole.OWNER || role === UserRole.DEVELOPER) {
+    if (role === UserRole.SUPER_ADMIN || role === UserRole.OWNER || role === UserRole.DEVELOPER || role === UserRole.MANAGER) {
       // Allow companyId from query param for SUPER_ADMIN to view different companies
       companyId = companyIdParam ? parseInt(companyIdParam) : null
     } else {

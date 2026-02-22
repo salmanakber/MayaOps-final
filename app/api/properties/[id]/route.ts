@@ -186,6 +186,31 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
 
     const companyId = property.companyId;
 
+    // Check for active tasks before archiving
+    const activeTasks = await prisma.task.findMany({
+      where: {
+        propertyId: id,
+        status: {
+          in: ['ASSIGNED', 'IN_PROGRESS'],
+        },
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+      },
+    });
+
+    if (activeTasks.length > 0) {
+      return NextResponse.json({
+        success: false,
+        message: `Cannot archive property. There are ${activeTasks.length} active or assigned task(s). Please complete or cancel them first.`,
+        data: {
+          activeTasks: activeTasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+        },
+      }, { status: 400 });
+    }
+
     // Archive the property (set isActive to false instead of deleting)
     await prisma.property.update({ 
       where: { id }, 
@@ -297,6 +322,34 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     if (typeof isActive !== 'boolean') {
       return NextResponse.json({ success: false, message: 'isActive must be a boolean' }, { status: 400 });
+    }
+
+    // If archiving (setting isActive to false), check for active tasks
+    if (isActive === false) {
+      const activeTasks = await prisma.task.findMany({
+        where: {
+          propertyId: id,
+          status: {
+            in: ['ASSIGNED', 'IN_PROGRESS'],
+          },
+        },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+        },
+      });
+
+      if (activeTasks.length > 0) {
+        const taskList = activeTasks.map(t => `Task #${t.id}: ${t.title} (${t.status})`).join('\n');
+        return NextResponse.json({
+          success: false,
+          message: `Cannot archive property. There are ${activeTasks.length} active or assigned task(s). Please complete or cancel them first.`,
+          data: {
+            activeTasks: activeTasks.map(t => ({ id: t.id, title: t.title, status: t.status })),
+          },
+        }, { status: 400 });
+      }
     }
 
     const updated = await prisma.property.update({

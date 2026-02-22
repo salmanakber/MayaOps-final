@@ -314,19 +314,73 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 }
 
 // DELETE /api/tasks/[id]
+// Instead of deleting, reject or archive the task
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
   const { tokenUser } = auth;
   const role = tokenUser.role as UserRole;
-  console.log('Task DELETE request:', request);
 
   const id = Number(params.id);
   if (Number.isNaN(id)) return NextResponse.json({ success: false, message: 'Invalid id' }, { status: 400 });
 
   try {
-    const task = await prisma.task.delete({ where: { id } });
-    return NextResponse.json({ success: true, message: 'Task deleted successfully' });
+    // Check if task exists and user has permission
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        companyId: true,
+        assignedUserId: true,
+        taskAssignments: {
+          select: { userId: true },
+        },
+      },
+    });
+
+    if (!task) {
+      return NextResponse.json({ success: false, message: 'Task not found' }, { status: 404 });
+    }
+
+    // Check permissions
+    if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.SUPER_ADMIN) {
+      const companyId = requireCompanyScope(tokenUser);
+      if (!companyId || task.companyId !== companyId) {
+        return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
+      }
+    }
+
+    // Determine appropriate status based on current status
+    let newStatus: TaskStatus;
+    if (task.status === TaskStatus.ASSIGNED || task.status === TaskStatus.IN_PROGRESS) {
+      // If task is active, reject it
+      newStatus = TaskStatus.REJECTED;
+    } else {
+      // Otherwise, archive it
+      newStatus = TaskStatus.ARCHIVED;
+    }
+
+    // Update task status instead of deleting
+    const updateData: any = {
+      status: newStatus,
+    };
+
+    // Set completedAt if archiving and not already completed
+    if (newStatus === TaskStatus.ARCHIVED && task.status !== TaskStatus.COMPLETED && task.status !== TaskStatus.APPROVED) {
+      updateData.completedAt = new Date();
+    }
+
+    const updated = await prisma.task.update({
+      where: { id },
+      data: updateData,
+    });
+
+    return NextResponse.json({ 
+      success: true, 
+      message: `Task ${newStatus.toLowerCase()} successfully`,
+      data: { task: updated },
+    });
   } catch (error) {
     console.error('Task DELETE error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });

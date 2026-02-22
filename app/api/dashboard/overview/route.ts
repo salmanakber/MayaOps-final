@@ -57,6 +57,9 @@ export async function GET(request: NextRequest) {
         status: true,
         createdAt: true,
         property: { select: { address: true } },
+        assignedUser: true,
+        taskAssignments: true,
+        notes: true,
       },
     })
 

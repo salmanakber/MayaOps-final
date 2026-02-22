@@ -66,7 +66,7 @@ export function extractToken(request: NextRequest): string | null {
   // First check Authorization header
   const authHeader = request.headers.get('authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.substring(7);
+  return authHeader.substring(7);
   }
   
   // Then check cookie

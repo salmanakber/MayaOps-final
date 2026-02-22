@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       task: companyId ? { companyId } : {},
     }
 
-    if (status) where.status = status
+    if (status && status !== "all") where.status = status
     if (severity) where.severity = severity
 
     const issues = await prisma.note.findMany({

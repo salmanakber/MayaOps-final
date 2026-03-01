@@ -55,7 +55,6 @@ export async function GET(request: NextRequest) {
       return {
         id: company.id,
         name: company.name,
-        email: company.email || '',
         subscription_status: company.subscriptionStatus || 'inactive',
         monthly_cost: monthlyCost,
         properties_count: propertyCount,

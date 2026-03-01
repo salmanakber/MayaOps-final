@@ -25,7 +25,7 @@ async function getApproverName(userId: number): Promise<string> {
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -33,19 +33,17 @@ export async function PATCH(
   const { tokenUser } = auth;
   const role = tokenUser.role as UserRole;
 
-  // Only owners, managers, and company admins can update leave requests
-  if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.MANAGER && role !== UserRole.COMPANY_ADMIN) {
-    return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
-  }
-
   try {
-    const { id } = await params;
+    const id = Number(params.id);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, message: 'Invalid leave request ID' }, { status: 400 });
+    }
     const body = await request.json();
     const { endDate, status } = body;
 
     // Get leave request with user info
     const existingLeaveRequest = await prisma.leaveRequest.findUnique({
-      where: { id: Number(id) },
+      where: { id },
       include: {
         user: { select: { firstName: true, lastName: true, email: true } },
       },
@@ -53,6 +51,15 @@ export async function PATCH(
 
     if (!existingLeaveRequest) {
       return NextResponse.json({ success: false, message: 'Leave request not found' }, { status: 404 });
+    }
+
+    // Check permissions: owners/managers/admins can update any, cleaners can only update their own
+    const isOwner = existingLeaveRequest.userId === tokenUser.userId;
+    const isAuthorized = role === UserRole.OWNER || role === UserRole.DEVELOPER || 
+                         role === UserRole.MANAGER || role === UserRole.COMPANY_ADMIN || isOwner;
+    
+    if (!isAuthorized) {
+      return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
     }
 
     // Build update data
@@ -72,7 +79,7 @@ export async function PATCH(
     }
 
     const leaveRequest = await prisma.leaveRequest.update({
-      where: { id: Number(id) },
+      where: { id },
       data: updateData,
       include: {
         user: { select: { firstName: true, lastName: true, email: true } },
@@ -124,7 +131,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -132,17 +139,15 @@ export async function DELETE(
   const { tokenUser } = auth;
   const role = tokenUser.role as UserRole;
 
-  // Only owners, managers, and company admins can delete leave requests
-  if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER && role !== UserRole.MANAGER && role !== UserRole.COMPANY_ADMIN) {
-    return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
-  }
-
   try {
-    const { id } = await params;
+    const id = Number(params.id);
+    if (isNaN(id)) {
+      return NextResponse.json({ success: false, message: 'Invalid leave request ID' }, { status: 400 });
+    }
 
     // Get leave request before deleting
     const leaveRequest = await prisma.leaveRequest.findUnique({
-      where: { id: Number(id) },
+      where: { id },
       include: {
         user: { select: { firstName: true, lastName: true, email: true } },
       },
@@ -152,9 +157,18 @@ export async function DELETE(
       return NextResponse.json({ success: false, message: 'Leave request not found' }, { status: 404 });
     }
 
+    // Check permissions: owners/managers/admins can delete any, cleaners can only delete their own
+    const isOwner = leaveRequest.userId === tokenUser.userId;
+    const isAuthorized = role === UserRole.OWNER || role === UserRole.DEVELOPER || 
+                         role === UserRole.MANAGER || role === UserRole.COMPANY_ADMIN || isOwner;
+    
+    if (!isAuthorized) {
+      return NextResponse.json({ success: false, message: 'Not authorized' }, { status: 403 });
+    }
+
     // Delete the leave request
     await prisma.leaveRequest.delete({
-      where: { id: Number(id) },
+      where: { id },
     });
 
     // Send notification to the requester

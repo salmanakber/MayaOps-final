@@ -87,9 +87,9 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
             id: true,
             url: true,
             generatedAt: true,
+            fileSize: true,
           },
           orderBy: { generatedAt: 'desc' },
-          take: 1, // Get most recent PDF
         },
       },
     });
@@ -293,9 +293,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
             id: true,
             url: true,
             generatedAt: true,
+            fileSize: true,
           },
           orderBy: { generatedAt: 'desc' },
-          take: 1, // Get most recent PDF
         },
       },
     });

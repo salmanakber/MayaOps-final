@@ -101,7 +101,7 @@ export async function POST(
     }
 
     // If payroll is marked as paid, update related working hours submissions to "paid" status
-    if (status === 'paid' && payrollRecord.payrollType === 'hourly') {
+    if (status === 'paid' ) {
       try {
         // Find all working hours submissions for this user in the payroll period
         const relatedSubmissions = await prisma.workingHoursSubmission.findMany({

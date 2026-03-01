@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
         propertyCount: record.propertyCount,
         isTrialPeriod: record.isTrialPeriod,
         trialEndsAt: record.trialEndsAt?.toISOString(),
+        invoiceUrl: record.invoiceUrl || null,
         createdAt: record.createdAt.toISOString(),
         updatedAt: record.updatedAt.toISOString(),
       })),

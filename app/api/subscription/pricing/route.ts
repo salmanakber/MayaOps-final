@@ -92,13 +92,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Calculate pricing - use AdminConfiguration first, then SystemSetting, then company default, then hardcoded
-    const basePrice = adminConfig 
-      ? Number(defaultBasePrice) 
-      : Number(defaultBasePrice) || Number(55.00);
+    const basePrice = adminConfig && adminConfig.subscriptionBasePrice
+      ? Number(adminConfig.subscriptionBasePrice)
+      : Number(defaultBasePrice) || Number(company.basePrice) || Number(55.00);
 
     console.log('basePrice', basePrice);
-    const pricePerUnit = adminConfig 
-      ? Number(defaultPricePerUnit) 
+    const pricePerUnit = adminConfig && adminConfig.propertyPricePerUnit
+      ? Number(adminConfig.propertyPricePerUnit)
       : Number(defaultPricePerUnit) || Number(1.00);
     
     const currency = adminConfig?.currency || 'GBP';

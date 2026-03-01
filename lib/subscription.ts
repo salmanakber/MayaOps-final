@@ -17,8 +17,8 @@ export async function hasActiveSubscription(companyId: number): Promise<boolean>
     // Check subscription status first
     const subscriptionStatus = company.subscriptionStatus;
     
-    // If subscription is canceled, past_due, unpaid, or inactive, deny access
-    if (['canceled', 'past_due', 'unpaid', 'inactive', 'incomplete_expired'].includes(subscriptionStatus)) {
+    // If subscription is canceled, past_due, unpaid, inactive, incomplete, or incomplete_expired, deny access
+    if (['canceled', 'past_due', 'unpaid', 'inactive', 'incomplete', 'incomplete_expired'].includes(subscriptionStatus)) {
       return false;
     }
 
@@ -49,7 +49,7 @@ export async function hasActiveSubscription(companyId: number): Promise<boolean>
     if (billingRecord) {
       const status = billingRecord.status;
       
-      // Check if billing record is active or trialing
+      // Check if billing record is active or trialing (exclude incomplete)
       if (status === 'active' || status === 'trialing') {
         // @ts-ignore - Fields exist in schema
         if (billingRecord.isTrialPeriod && billingRecord.trialEndsAt) {
@@ -76,8 +76,8 @@ export async function hasActiveSubscription(companyId: number): Promise<boolean>
         }
       }
 
-      // If billing record status is failed, canceled, or inactive, deny access
-      if (['failed', 'canceled', 'inactive'].includes(status)) {
+      // If billing record status is failed, canceled, inactive, or incomplete, deny access
+      if (['failed', 'canceled', 'inactive', 'incomplete'].includes(status)) {
         return false;
       }
     }

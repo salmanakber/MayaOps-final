@@ -106,13 +106,43 @@ export async function POST(request: NextRequest) {
       where: { companyId },
     });
 
-    const basePrice = adminConfig 
-      ? Number(adminConfig.subscriptionBasePrice) 
-      : Number(company.basePrice) || 55.00;
+    // Get default pricing from SystemSetting if not in AdminConfiguration
+    let defaultBasePrice = 55.00;
+    let defaultPricePerUnit = 1.00;
     
-    const pricePerUnit = adminConfig 
-      ? Number(adminConfig.propertyPricePerUnit) 
-      : 1.00;
+    try {
+      const basePriceSetting = await prisma.systemSetting.findUnique({
+        where: { key: 'base_monthly_price' },
+      });
+      const pricePerPropertySetting = await prisma.systemSetting.findUnique({
+        where: { key: 'price_per_property' },
+      });
+    
+      if (basePriceSetting) {
+        defaultBasePrice = parseFloat(basePriceSetting.value) || 55.00;
+      } else {
+        // Fallback to env var
+        defaultBasePrice = parseFloat(process.env.BASE_MONTHLY_PRICE || '55');
+      }
+      
+      if (pricePerPropertySetting) {
+        defaultPricePerUnit = parseFloat(pricePerPropertySetting.value) || 1.00;
+      } else {
+        // Fallback to env var
+        defaultPricePerUnit = parseFloat(process.env.PRICE_PER_PROPERTY || '1');
+      }
+    } catch (error) {
+      console.warn('Failed to fetch default pricing from SystemSetting, using defaults:', error);
+    }
+
+    // Calculate pricing - use AdminConfiguration first, then SystemSetting, then company default, then hardcoded
+    const basePrice = adminConfig && adminConfig.subscriptionBasePrice
+      ? Number(adminConfig.subscriptionBasePrice)
+      : Number(defaultBasePrice) || Number(company.basePrice) || 55.00;
+    
+    const pricePerUnit = adminConfig && adminConfig.propertyPricePerUnit
+      ? Number(adminConfig.propertyPricePerUnit)
+      : Number(defaultPricePerUnit) || 1.00;
 
     // Check if already has active subscription
     const existingBilling = await prisma.billingRecord.findFirst({
@@ -276,14 +306,47 @@ export async function POST(request: NextRequest) {
     const amountPaid = useTrial ? 0 : (latestInvoice?.amount_paid ? latestInvoice.amount_paid / 100 : 0);
     const amountDue = useTrial ? Number(billing.totalAmount) : (latestInvoice?.amount_due ? latestInvoice.amount_due / 100 : Number(billing.totalAmount));
 
+    // Check payment status for instant subscriptions
+    let finalStatus: string;
+    if (useTrial) {
+      // For trial, status is trialing or active
+      finalStatus = subscription.status === 'trialing' ? 'trialing' : 'active';
+    } else {
+      // For instant subscription, only set to active if payment succeeded
+      if (latestInvoice) {
+        const invoiceStatus = latestInvoice.status;
+        const paymentIntent = latestInvoice.payment_intent;
+        
+        // Check if payment was successful
+        if (invoiceStatus === 'paid' && paymentIntent) {
+          const paymentIntentObj = typeof paymentIntent === 'string' 
+            ? await stripeInstance!.paymentIntents.retrieve(paymentIntent)
+            : paymentIntent;
+          
+          if (paymentIntentObj.status === 'succeeded') {
+            finalStatus = 'active';
+          } else {
+            // Payment failed or incomplete
+            finalStatus = 'incomplete';
+          }
+        } else if (invoiceStatus === 'paid') {
+          finalStatus = 'active';
+        } else {
+          // Invoice not paid - set to incomplete
+          finalStatus = 'incomplete';
+        }
+      } else {
+        // No invoice yet - set to incomplete
+        finalStatus = 'incomplete';
+      }
+    }
+
     // Create or update billing record
     const billingData: any = {
       companyId,
       stripeCustomerId: customerId,
       subscriptionId: subscription.id,
-      status: useTrial 
-        ? (subscription.status === 'trialing' ? 'trialing' : 'active')
-        : (subscription.status === 'active' ? 'active' : subscription.status),
+      status: finalStatus,
       amountPaid,
       amountDue,
       propertyCount,
@@ -313,16 +376,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Update company
+    // Update company - only set to active if payment succeeded
     await prisma.company.update({
       where: { id: companyId },
       data: {
-        subscriptionStatus: useTrial ? 'trialing' : 'active',
+        subscriptionStatus: finalStatus,
         trialEndsAt,
         isTrialActive: isTrialPeriod,
         propertyCount,
       },
     });
+
+    // If instant subscription and payment failed, return error
+    if (!useTrial && finalStatus === 'incomplete') {
+      return NextResponse.json({
+        success: false,
+        message: 'Payment failed. Please check your payment method and try again.',
+        data: {
+          subscription: {
+            id: subscription.id,
+            status: subscription.status,
+          },
+          billing: updatedBilling,
+        },
+      }, { status: 402 }); // 402 Payment Required
+    }
 
     return NextResponse.json({
       success: true,

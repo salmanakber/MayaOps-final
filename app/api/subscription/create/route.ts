@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { requireAuth } from '@/lib/rbac';
 import { UserRole } from '@prisma/client';
-import { createCustomer, createSubscriptionWithTrial, calculateBilling, createStripeInstance, decrypt } from '@/lib/stripe';
+import { createCustomer, createSubscriptionWithTrial, createSubscriptionInstant, calculateBilling, createStripeInstance, decrypt } from '@/lib/stripe';
 import Stripe from 'stripe';
 
 // Helper function to get Stripe secret key from SystemSetting with env fallback
@@ -61,7 +61,8 @@ export async function POST(request: NextRequest) {
       companyId, 
       companyName, 
       email, 
-      paymentMethodId
+      paymentMethodId,
+      useTrial = true // Default to trial, but allow instant subscription
     } = body;
 
     if (!companyId || !companyName || !email || !paymentMethodId) {
@@ -213,16 +214,44 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Create subscription with 14-day trial using both price IDs
-    const TRIAL_DAYS = 14;
-    const subscription = await createSubscriptionWithTrial(
-      customerId,
-      basePriceId,
-      propertyPriceId,
-      propertyCount,
-      TRIAL_DAYS,
-      stripeInstance
-    );
+    // Create subscription with or without trial based on user choice
+    let subscription;
+    let trialEndsAt: Date | null = null;
+    let isTrialPeriod = false;
+    
+    if (useTrial) {
+      // Create subscription with 14-day trial
+      const TRIAL_DAYS = 14;
+      subscription = await createSubscriptionWithTrial(
+        customerId,
+        basePriceId,
+        propertyPriceId,
+        propertyCount,
+        TRIAL_DAYS,
+        stripeInstance
+      );
+      
+      // Calculate trial end date
+      trialEndsAt = new Date();
+      trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+      isTrialPeriod = true;
+    } else {
+      // Create instant subscription (no trial) - charges immediately
+      subscription = await createSubscriptionInstant(
+        customerId,
+        basePriceId,
+        propertyPriceId,
+        propertyCount,
+        stripeInstance
+      );
+      
+      // For instant subscription, billing starts immediately
+      // Calculate next billing date (typically 1 month from now)
+      const nextBillingDate = new Date();
+      nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+      trialEndsAt = null;
+      isTrialPeriod = false;
+    }
 
     // Extract subscription item IDs from the subscription
     const baseItem = subscription.items.data.find(
@@ -232,23 +261,36 @@ export async function POST(request: NextRequest) {
       (item) => item.price.id === propertyPriceId
     );
 
-    // Calculate trial end date
-    const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+    // Calculate next billing date
+    const nextBillingDate = isTrialPeriod 
+      ? trialEndsAt 
+      : (() => {
+          const date = new Date();
+          date.setMonth(date.getMonth() + 1);
+          return date;
+        })();
+
+    // Determine initial payment status
+    // For instant subscription, check if invoice was paid
+    const latestInvoice = subscription.latest_invoice as Stripe.Invoice | undefined;
+    const amountPaid = useTrial ? 0 : (latestInvoice?.amount_paid ? latestInvoice.amount_paid / 100 : 0);
+    const amountDue = useTrial ? Number(billing.totalAmount) : (latestInvoice?.amount_due ? latestInvoice.amount_due / 100 : Number(billing.totalAmount));
 
     // Create or update billing record
     const billingData: any = {
       companyId,
       stripeCustomerId: customerId,
       subscriptionId: subscription.id,
-      status: subscription.status === 'trialing' ? 'trialing' : 'active',
-      amountPaid: 0,
-      amountDue: Number(billing.totalAmount),
+      status: useTrial 
+        ? (subscription.status === 'trialing' ? 'trialing' : 'active')
+        : (subscription.status === 'active' ? 'active' : subscription.status),
+      amountPaid,
+      amountDue,
       propertyCount,
       trialEndsAt,
-      isTrialPeriod: true,
+      isTrialPeriod,
       billingDate: new Date(),
-      nextBillingDate: trialEndsAt,
+      nextBillingDate,
     };
     
     // Add subscription item IDs (fields exist in schema but Prisma client needs regeneration)
@@ -275,16 +317,18 @@ export async function POST(request: NextRequest) {
     await prisma.company.update({
       where: { id: companyId },
       data: {
-        subscriptionStatus: 'trialing',
+        subscriptionStatus: useTrial ? 'trialing' : 'active',
         trialEndsAt,
-        isTrialActive: true,
+        isTrialActive: isTrialPeriod,
         propertyCount,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: 'Subscription created with 14-day free trial',
+      message: useTrial 
+        ? 'Subscription created with 14-day free trial'
+        : 'Subscription created and activated immediately',
       data: {
         subscription: {
           id: subscription.id,
@@ -292,7 +336,8 @@ export async function POST(request: NextRequest) {
           trialEnd: subscription.trial_end ? new Date(subscription.trial_end * 1000).toISOString() : null,
         },
         billing: updatedBilling,
-        trialEndsAt: trialEndsAt.toISOString(),
+        trialEndsAt: trialEndsAt?.toISOString() || null,
+        isTrialPeriod,
       },
     });
   } catch (error: any) {

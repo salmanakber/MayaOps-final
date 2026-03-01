@@ -154,6 +154,60 @@ export async function createSubscriptionWithTrial(
   return subscription;
 }
 
+export async function createSubscriptionInstant(
+  customerId: string,
+  basePriceId: string,
+  propertyPriceId: string,
+  propertyCount: number = 0,
+  stripeInstance?: Stripe
+) {
+  const s = stripeInstance || stripe;
+  
+  // Create subscription without trial period - charges immediately
+  const items: Stripe.SubscriptionCreateParams.Item[] = [
+    {
+      price: basePriceId,
+      quantity: 1, // Base subscription is always quantity 1
+    },
+  ];
+
+  // Add property usage price item
+  if (propertyPriceId) {
+    items.push({
+      price: propertyPriceId,
+    });
+  }
+
+  const subscription = await s.subscriptions.create({
+    customer: customerId,
+    items,
+    // No trial_period_days - charges immediately
+    payment_behavior: 'default_incomplete',
+    payment_settings: { save_default_payment_method: 'on_subscription' },
+    expand: ['latest_invoice.payment_intent', 'latest_invoice'],
+  });
+
+  // If there are properties, report initial usage for metered plan
+  if (propertyCount > 0 && propertyPriceId) {
+    const propertyItem = subscription.items.data.find(
+      (item) => item.price.id === propertyPriceId
+    );
+    
+    if (propertyItem) {
+      // Report usage for the current billing period
+      await s.subscriptionItems.update(
+        propertyItem.id,
+        {
+          quantity: propertyCount,
+          proration_behavior: 'create_prorations',
+        }
+      );
+    }
+  }
+
+  return subscription;
+}
+
 /**
  * Update subscription quantity
  * Note: stripeInstance parameter should be created with credentials from SystemSetting in route handlers

@@ -215,7 +215,7 @@ export default function AdminControlCenter() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <StatusBadge status={company.subscription_status} />
+                          <StatusBadge status={company.subscription_status || 'inactive'} />
                         </td>
                         <td className="px-6 py-4 text-center">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-800">
@@ -223,7 +223,7 @@ export default function AdminControlCenter() {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          <div className="font-medium text-gray-900">£{Number(company.monthly_cost)?.toFixed(2) || 0}</div>
+                          <div className="font-medium text-gray-900">£{Number(company.monthly_cost || 0)?.toFixed(2)}</div>
                           <div className="text-xs text-gray-400">/month</div>
                         </td>
                         <td className="px-6 py-4 text-right">

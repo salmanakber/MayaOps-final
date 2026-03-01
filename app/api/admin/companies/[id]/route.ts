@@ -144,7 +144,7 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const { name, basePrice, subscriptionStatus, isTrialActive, trialEndsAt, assignUser } = body
+    const { name, basePrice, subscriptionStatus, isTrialActive, trialEndsAt, assignUser, billingRecordUpdates } = body
 
     // Handle user assignment if provided
     if (assignUser) {
@@ -190,6 +190,25 @@ export async function PATCH(
         success: true,
         message: "User assigned to company successfully",
       })
+    }
+
+    // Handle billing record updates if provided
+    if (billingRecordUpdates && Array.isArray(billingRecordUpdates)) {
+      for (const update of billingRecordUpdates) {
+        if (update.id) {
+          const billingUpdateData: any = {};
+          if (update.status !== undefined) billingUpdateData.status = update.status;
+          if (update.amountPaid !== undefined) billingUpdateData.amountPaid = update.amountPaid;
+          if (update.amountDue !== undefined) billingUpdateData.amountDue = update.amountDue;
+          if (update.billingDate !== undefined) billingUpdateData.billingDate = update.billingDate ? new Date(update.billingDate) : null;
+          if (update.nextBillingDate !== undefined) billingUpdateData.nextBillingDate = update.nextBillingDate ? new Date(update.nextBillingDate) : null;
+          
+          await prisma.billingRecord.update({
+            where: { id: update.id },
+            data: billingUpdateData,
+          });
+        }
+      }
     }
 
     // Regular company update

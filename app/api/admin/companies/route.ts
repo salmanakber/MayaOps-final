@@ -16,12 +16,56 @@ export async function GET(request: NextRequest) {
     }
 
     const companies = await prisma.company.findMany({
+      include: {
+        billingRecords: {
+          orderBy: { createdAt: 'desc' },
+          take: 1, // Get latest billing record
+        },
+        _count: {
+          select: {
+            properties: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     })
 
+    // Get pricePerUnit from SystemSetting
+    let pricePerUnit = 1.00;
+    try {
+      const pricePerPropertySetting = await prisma.systemSetting.findUnique({
+        where: { key: 'price_per_property' },
+      });
+      if (pricePerPropertySetting) {
+        pricePerUnit = parseFloat(pricePerPropertySetting.value) || 1.00;
+      } else {
+        pricePerUnit = parseFloat(process.env.PRICE_PER_PROPERTY || '1');
+      }
+    } catch (error) {
+      console.warn('Failed to fetch price_per_property from settings:', error);
+    }
+
+    // Format companies with billing info
+    const formattedCompanies = companies.map(company => {
+      const latestBilling = company.billingRecords[0];
+      // Calculate monthly cost from basePrice + propertyCount * pricePerUnit
+      const propertyCount = company._count.properties || 0;
+      const monthlyCost = Number(company.basePrice || 0) + (propertyCount * pricePerUnit);
+      
+      return {
+        id: company.id,
+        name: company.name,
+        email: company.email || '',
+        subscription_status: company.subscriptionStatus || 'inactive',
+        monthly_cost: monthlyCost,
+        properties_count: propertyCount,
+        created_at: company.createdAt.toISOString(),
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      data: companies,
+      data: formattedCompanies,
     })
   } catch (error) {
     console.error("Error fetching companies:", error)

@@ -33,6 +33,7 @@ interface BillingRecord {
   nextBillingDate?: string
   isTrialPeriod: boolean
   trialEndsAt?: string
+  invoiceUrl?: string
   createdAt: string
   company?: {
     id: number
@@ -273,9 +274,70 @@ console.log(records)
                         </div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button className="text-gray-400 hover:text-indigo-600 transition-colors p-2 hover:bg-indigo-50 rounded-full" title="Download Invoice">
-                            <FileText size={18} />
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          {record.invoiceUrl ? (
+                            <a
+                              href={record.invoiceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-400 hover:text-indigo-600 transition-colors p-2 hover:bg-indigo-50 rounded-full"
+                              title="Download Invoice"
+                            >
+                              <Download size={18} />
+                            </a>
+                          ) : (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+                                  const response = await axios.get(
+                                    `/api/billing/${record.id}/invoice`,
+                                    { headers: { Authorization: `Bearer ${token}` } }
+                                  )
+                                  if (response.data.success && response.data.data?.invoiceUrl) {
+                                    window.open(response.data.data.invoiceUrl, '_blank')
+                                    loadBilling() // Reload to get updated invoiceUrl
+                                  } else {
+                                    alert('Failed to generate invoice')
+                                  }
+                                } catch (error: any) {
+                                  alert(error.response?.data?.message || 'Failed to generate invoice')
+                                }
+                              }}
+                              className="text-gray-400 hover:text-indigo-600 transition-colors p-2 hover:bg-indigo-50 rounded-full"
+                              title="Generate Invoice"
+                            >
+                              <FileText size={18} />
+                            </button>
+                          )}
+                          {record.subscriptionId && (record.status === 'active' || record.status === 'trialing') && (
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`Are you sure you want to cancel the subscription for ${record.companyName}? This action cannot be undone.`)) return
+                                try {
+                                  const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+                                  const response = await axios.post(
+                                    `/api/admin/billing/${record.id}/cancel-subscription`,
+                                    {},
+                                    { headers: { Authorization: `Bearer ${token}` } }
+                                  )
+                                  if (response.data.success) {
+                                    alert('Subscription canceled successfully')
+                                    loadBilling()
+                                  } else {
+                                    alert(response.data.message || 'Failed to cancel subscription')
+                                  }
+                                } catch (error: any) {
+                                  alert(error.response?.data?.message || 'Failed to cancel subscription')
+                                }
+                              }}
+                              className="text-gray-400 hover:text-red-600 transition-colors p-2 hover:bg-red-50 rounded-full"
+                              title="Cancel Subscription"
+                            >
+                              <XCircle size={18} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

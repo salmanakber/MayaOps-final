@@ -467,6 +467,23 @@ function EditCompanyModal({
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-GB", {
+      style: "currency",
+      currency: "GBP",
+    }).format(amount)
+  }
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return "N/A"
+    return new Date(dateString).toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+  }
+
   const [formData, setFormData] = useState({
     name: company.name,
     basePrice: company.basePrice.toString(),
@@ -637,8 +654,11 @@ function EditCompanyModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg"
             >
               <option value="active">Active</option>
+              <option value="trialing">Trialing</option>
               <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
+              <option value="incomplete">Incomplete</option>
+              <option value="past_due">Past Due</option>
+              <option value="canceled">Canceled</option>
               <option value="cancelled">Cancelled</option>
             </select>
           </div>
@@ -665,6 +685,52 @@ function EditCompanyModal({
               />
             </div>
           )}
+
+          {/* Billing Records Management Section */}
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Manage Billing Records</h3>
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {company.billingRecords.map((record) => (
+                <div key={record.id} className="p-3 border border-gray-200 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-900">
+                      Record #{record.id} - {formatDate(record.billingDate)}
+                    </span>
+                    <select
+                      value={record.status}
+                      onChange={async (e) => {
+                        try {
+                          const token = localStorage.getItem("authToken") || sessionStorage.getItem("authToken")
+                          await axios.patch(
+                            `/api/admin/billing/${record.id}`,
+                            { status: e.target.value },
+                            { headers: { Authorization: `Bearer ${token}` } }
+                          )
+                          // Reload company data
+                          window.location.reload()
+                        } catch (error: any) {
+                          alert(error.response?.data?.message || "Failed to update billing record")
+                        }
+                      }}
+                      className="text-xs px-2 py-1 border border-gray-300 rounded"
+                    >
+                      <option value="active">Active</option>
+                      <option value="trialing">Trialing</option>
+                      <option value="pending">Pending</option>
+                      <option value="incomplete">Incomplete</option>
+                      <option value="failed">Failed</option>
+                      <option value="canceled">Canceled</option>
+                    </select>
+                  </div>
+                  <div className="text-xs text-gray-600">
+                    Amount Paid: {formatCurrency(record.amountPaid)} | 
+                    Amount Due: {formatCurrency(record.amountDue)} | 
+                    Properties: {record.propertyCount}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
           {/* User Assignment Section */}
           <div className="border-t border-gray-200 pt-6 mt-6">

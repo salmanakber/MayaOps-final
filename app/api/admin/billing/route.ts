@@ -74,6 +74,7 @@ export async function GET(request: NextRequest) {
       propertyCount: record.propertyCount,
       isTrialPeriod: record.isTrialPeriod,
       trialEndsAt: record.trialEndsAt?.toISOString(),
+      invoiceUrl: record.invoiceUrl,
       createdAt: record.createdAt.toISOString(),
       company: {
         id: record.company.id,

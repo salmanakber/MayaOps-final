@@ -8,6 +8,21 @@ import { createNotification } from '@/lib/notifications';
  * PATCH /api/leave/[id] - Update leave request (cancel or adjust dates)
  * DELETE /api/leave/[id] - Cancel/delete leave request
  */
+
+async function getApproverName(userId: number): Promise<string> {
+    try {
+        const response = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, lastName: true },
+        });
+        return `${response?.firstName || ''} ${response?.lastName || ''}`.trim() || 'Manager';
+    } catch (error) {
+        console.error('Error getting username by id:', error);
+        return 'Manager';
+    }
+}
+
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -69,7 +84,7 @@ export async function PATCH(
     try {
       const startDateStr = new Date(leaveRequest.startDate).toLocaleDateString('en-GB');
       const endDateStr = new Date(leaveRequest.endDate).toLocaleDateString('en-GB');
-      const approverName = `${tokenUser.firstName || ''} ${tokenUser.lastName || ''}`.trim() || 'Manager';
+      const approverName = await getApproverName(tokenUser.userId);
 
       let notificationTitle = 'Leave Request Updated';
       let notificationMessage = '';
@@ -146,7 +161,7 @@ export async function DELETE(
     try {
       const startDateStr = new Date(leaveRequest.startDate).toLocaleDateString('en-GB');
       const endDateStr = new Date(leaveRequest.endDate).toLocaleDateString('en-GB');
-      const approverName = `${tokenUser.firstName || ''} ${tokenUser.lastName || ''}`.trim() || 'Manager';
+      const approverName = await getApproverName(tokenUser.userId);
 
       await createNotification({
         userId: leaveRequest.userId,

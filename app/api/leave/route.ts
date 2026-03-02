@@ -14,21 +14,43 @@ export async function GET(request: NextRequest) {
   try {
     const where: any = {};
 
+    // Get user's companyId - prefer tokenUser.companyId if available
+    let companyId: number | null = tokenUser.companyId || null;
     
-    if (role === UserRole.CLEANER) {
-      where.userId = tokenUser.userId;
-    } else if (role !== UserRole.OWNER && role !== UserRole.MANAGER) {
+    if (!companyId) {
+      const user = await prisma.user.findUnique({
+        where: { id: tokenUser.userId },
+        select: { companyId: true },
+      });
+      companyId = user?.companyId || null;
+    }
 
-    const getCmpanyIdbyUserId = await prisma.user.findUnique({
-      where: { id: tokenUser.userId },
-      select: { companyId: true },
-    });
-
-    if (!getCmpanyIdbyUserId) {
+    if (!companyId) {
       return NextResponse.json({ success: false, message: 'User company not found' }, { status: 400 });
     }
 
-      where.user = { companyId: getCmpanyIdbyUserId.companyId };
+    // CLEANER: only see their own leave requests
+    if (role === UserRole.CLEANER) {
+      where.userId = tokenUser.userId;
+    } 
+    // OWNER, MANAGER, COMPANY_ADMIN: see all leave requests from their company
+    // Get all user IDs in the company first, then filter by those IDs
+    else if (role === UserRole.OWNER || role === UserRole.MANAGER || role === UserRole.COMPANY_ADMIN) {
+      const companyUsers = await prisma.user.findMany({
+        where: { companyId: companyId },
+        select: { id: true },
+      });
+      const userIds = companyUsers.map(u => u.id);
+      where.userId = { in: userIds };
+    }
+    // Other roles: also filter by companyId for security
+    else {
+      const companyUsers = await prisma.user.findMany({
+        where: { companyId: companyId },
+        select: { id: true },
+      });
+      const userIds = companyUsers.map(u => u.id);
+      where.userId = { in: userIds };
     }
 
     const leaveRequests = await prisma.leaveRequest.findMany({

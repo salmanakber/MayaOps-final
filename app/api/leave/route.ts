@@ -13,11 +13,22 @@ export async function GET(request: NextRequest) {
 
   try {
     const where: any = {};
+
     
     if (role === UserRole.CLEANER) {
       where.userId = tokenUser.userId;
-    } else if (role !== UserRole.OWNER && role !== UserRole.DEVELOPER) {
-      where.user = { companyId: tokenUser.companyId };
+    } else if (role !== UserRole.OWNER && role !== UserRole.MANAGER) {
+
+    const getCmpanyIdbyUserId = await prisma.user.findUnique({
+      where: { id: tokenUser.userId },
+      select: { companyId: true },
+    });
+
+    if (!getCmpanyIdbyUserId) {
+      return NextResponse.json({ success: false, message: 'User company not found' }, { status: 400 });
+    }
+
+      where.user = { companyId: getCmpanyIdbyUserId.companyId };
     }
 
     const leaveRequests = await prisma.leaveRequest.findMany({

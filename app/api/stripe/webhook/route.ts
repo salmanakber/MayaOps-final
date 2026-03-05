@@ -28,8 +28,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');
-    console.log('Signature:', signature);
-    console.log('Body:', body);
 
     if (!signature) {
       return NextResponse.json({ error: 'No signature' }, { status: 400 });
@@ -37,7 +35,6 @@ export async function POST(request: NextRequest) {
 
     // Get webhook secret from SystemSetting
     const webhookSecret = await getStripeWebhookSecret();
-    console.log('Webhook secret:', webhookSecret);
     if (!webhookSecret) {
       return NextResponse.json({ 
         error: 'Stripe webhook secret not configured. Please configure it in Admin Settings.' 
@@ -45,7 +42,6 @@ export async function POST(request: NextRequest) {
     }
 
     const event = await handleWebhook(body, signature, webhookSecret);
-    console.log('Event:', event);
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
@@ -75,11 +71,9 @@ export async function POST(request: NextRequest) {
 
       case 'invoice.payment_action_required':
         // Payment requires action (e.g., 3D Secure)
-        console.log('Payment action required:', event.data.object.id);
         break;
 
       default:
-        console.log(`Unhandled event type: ${event.type}`);
     }
 
     return NextResponse.json({ received: true });
@@ -141,7 +135,6 @@ async function handleSubscriptionUpdate(subscription: any) {
   // If subscription is inactive/expired, ensure users are aware (but don't deactivate them)
   // The subscription check middleware will handle access restriction
   if (!isActive && (status === 'past_due' || status === 'unpaid' || status === 'canceled' || status === 'incomplete_expired')) {
-    console.log(`Subscription ${subscriptionId} is inactive for company ${companyId}`);
     // Access will be restricted by requireActiveSubscription middleware
   }
 }
@@ -155,7 +148,6 @@ async function handleTrialEnding(subscription: any) {
     const daysUntilEnd = Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     if (daysUntilEnd <= 3) {
       // Notification will be sent via notification service
-      console.log(`Trial ending in ${daysUntilEnd} days for customer ${customerId}`);
     }
   }
 }
@@ -170,7 +162,6 @@ async function handleSubscriptionCancellation(subscription: any) {
   });
 
   if (!billingRecord) {
-    console.error(`No billing record found for customer ${customerId}`);
     return;
   }
 
@@ -194,7 +185,7 @@ async function handleSubscriptionCancellation(subscription: any) {
   });
 
   // Access will be restricted by requireActiveSubscription middleware
-  console.log(`Subscription canceled for company ${companyId} - access restricted`);
+  
 }
 
 async function handlePaymentSuccess(invoice: any) {
@@ -267,7 +258,8 @@ async function handlePaymentSuccess(invoice: any) {
     },
   });
 
-  console.log(`Payment succeeded for company ${companyId} - Access activated for all users`);
+  
+
 }
 
 async function handlePaymentFailure(invoice: any) {
@@ -315,6 +307,6 @@ async function handlePaymentFailure(invoice: any) {
     });
 
     // Access will be restricted by requireActiveSubscription middleware
-    console.log(`Payment failed for company ${companyId} - Access restricted due to ${subscription.status} status`);
+    
   }
 }

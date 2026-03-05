@@ -320,17 +320,21 @@ export async function generateTaskPDF(
       }
 
       // Photo Evidence Section
-      if (pdfType === 'before' || pdfType === 'after') {
-        // Single type PDF
-        if (photosToInclude.length > 0) {
-          doc.addPage();
-          doc.fontSize(16).font('Helvetica-Bold').text(sectionTitle);
-          doc.moveDown();
+      const renderPhotoSection = (
+        title: string,
+        photos: Photo[],
+        buffers: (Buffer | null)[]
+      ) => {
+        if (!photos.length) return;
 
-          for (let i = 0; i < photosToInclude.length; i++) {
-            const photo = photosToInclude[i];
-            const imageBuffer = photoBuffers[i];
-          
+        doc.addPage();
+        doc.fontSize(16).font('Helvetica-Bold').text(title);
+        doc.moveDown();
+
+        for (let i = 0; i < photos.length; i++) {
+          const photo = photos[i];
+          const imageBuffer = buffers[i];
+
           // Add photo caption
           if (photo.caption) {
             doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}: ${photo.caption}`);
@@ -339,26 +343,26 @@ export async function generateTaskPDF(
             doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}`);
             doc.moveDown(0.3);
           }
-          
+
           if (photo.takenAt) {
             doc.fontSize(8).font('Helvetica').text(`Taken: ${new Date(photo.takenAt).toLocaleString()}`);
             doc.moveDown(0.3);
           }
-          
+
           // Embed image if we successfully fetched it
           if (imageBuffer) {
             try {
               // Embed image - fit to page width (A4 width minus margins = ~495 points)
               const maxWidth = 495;
               const maxHeight = 400;
-              
+
               doc.image(imageBuffer, {
                 fit: [maxWidth, maxHeight],
                 align: 'center',
               });
               doc.moveDown();
             } catch (error) {
-              console.error(`Error embedding before photo ${i + 1}:`, error);
+              console.error(`Error embedding photo ${i + 1}:`, error);
               doc.fontSize(10).font('Helvetica').text('[Error embedding image]');
               doc.moveDown();
             }
@@ -366,9 +370,9 @@ export async function generateTaskPDF(
             doc.fontSize(10).font('Helvetica').text('[Error loading image]');
             doc.moveDown();
           }
-          
+
           // Add new page if not the last photo and we're close to bottom
-          if (i < photosToInclude.length - 1) {
+          if (i < photos.length - 1) {
             const currentY = doc.y;
             if (currentY > 700) { // If close to bottom of page
               doc.addPage();
@@ -377,124 +381,18 @@ export async function generateTaskPDF(
             }
           }
         }
+      };
+
+      if (pdfType === 'before') {
+        renderPhotoSection('Before Photos', photosToInclude, photoBuffers);
+      } else if (pdfType === 'after') {
+        renderPhotoSection('After Photos', photosToInclude, photoBuffers);
       } else {
-        // Combined PDF - Before Photos
         const beforePhotoBuffers = (photoBuffers as any).before || [];
-        if (beforePhotos.length > 0) {
-          doc.addPage();
-          doc.fontSize(16).font('Helvetica-Bold').text('Before Photos');
-          doc.moveDown();
-
-          for (let i = 0; i < beforePhotos.length; i++) {
-            const photo = beforePhotos[i];
-            const imageBuffer = beforePhotoBuffers[i];
-          
-          // Add photo caption
-          if (photo.caption) {
-            doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}: ${photo.caption}`);
-            doc.moveDown(0.3);
-          } else {
-            doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}`);
-            doc.moveDown(0.3);
-          }
-          
-          if (photo.takenAt) {
-            doc.fontSize(8).font('Helvetica').text(`Taken: ${new Date(photo.takenAt).toLocaleString()}`);
-            doc.moveDown(0.3);
-          }
-          
-          // Embed image if we successfully fetched it
-          if (imageBuffer) {
-            try {
-              // Embed image - fit to page width (A4 width minus margins = ~495 points)
-              const maxWidth = 495;
-              const maxHeight = 400;
-              
-              doc.image(imageBuffer, {
-                fit: [maxWidth, maxHeight],
-                align: 'center',
-              });
-              doc.moveDown();
-            } catch (error) {
-              console.error(`Error embedding after photo ${i + 1}:`, error);
-              doc.fontSize(10).font('Helvetica').text('[Error embedding image]');
-              doc.moveDown();
-            }
-          } else {
-            doc.fontSize(10).font('Helvetica').text('[Error loading image]');
-            doc.moveDown();
-          }
-          
-          // Add new page if not the last photo and we're close to bottom
-          if (i < beforePhotos.length - 1) {
-            const currentY = doc.y;
-            if (currentY > 700) { // If close to bottom of page
-              doc.addPage();
-            } else {
-              doc.moveDown(0.5);
-            }
-          }
-        }
-      }
-
-        // Combined PDF - After Photos
         const afterPhotoBuffers = (photoBuffers as any).after || [];
-        if (afterPhotos.length > 0) {
-          doc.addPage();
-          doc.fontSize(16).font('Helvetica-Bold').text('After Photos');
-          doc.moveDown();
 
-          for (let i = 0; i < afterPhotos.length; i++) {
-            const photo = afterPhotos[i];
-            const imageBuffer = afterPhotoBuffers[i];
-            
-            // Add photo caption
-            if (photo.caption) {
-              doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}: ${photo.caption}`);
-              doc.moveDown(0.3);
-            } else {
-              doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}`);
-              doc.moveDown(0.3);
-            }
-            
-            if (photo.takenAt) {
-              doc.fontSize(8).font('Helvetica').text(`Taken: ${new Date(photo.takenAt).toLocaleString()}`);
-              doc.moveDown(0.3);
-            }
-            
-            // Embed image if we successfully fetched it
-            if (imageBuffer) {
-              try {
-                // Embed image - fit to page width (A4 width minus margins = ~495 points)
-                const maxWidth = 495;
-                const maxHeight = 400;
-                
-                doc.image(imageBuffer, {
-                  fit: [maxWidth, maxHeight],
-                  align: 'center',
-                });
-                doc.moveDown();
-              } catch (error) {
-                console.error(`Error embedding after photo ${i + 1}:`, error);
-                doc.fontSize(10).font('Helvetica').text('[Error embedding image]');
-                doc.moveDown();
-              }
-            } else {
-              doc.fontSize(10).font('Helvetica').text('[Error loading image]');
-              doc.moveDown();
-            }
-            
-            // Add new page if not the last photo and we're close to bottom
-            if (i < afterPhotos.length - 1) {
-              const currentY = doc.y;
-              if (currentY > 700) { // If close to bottom of page
-                doc.addPage();
-              } else {
-                doc.moveDown(0.5);
-              }
-            }
-          }
-        }
+        renderPhotoSection('Before Photos', beforePhotos, beforePhotoBuffers);
+        renderPhotoSection('After Photos', afterPhotos, afterPhotoBuffers);
       }
 
       // Summary

@@ -85,6 +85,7 @@ export default function AdminUsersManagementPage() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<number | null>(null);
   const [filter, setFilter] = useState<'all' | 'OWNER' | 'MANAGER' | 'CLEANER'>('all');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'archived' | 'all'>('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [expandedOwners, setExpandedOwners] = useState<Set<number>>(new Set());
@@ -106,7 +107,7 @@ export default function AdminUsersManagementPage() {
   useEffect(() => {
     loadUsers();
     loadCompanies();
-  }, [filter]);
+  }, [filter, statusFilter]);
 
   // Toast Handler
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -146,18 +147,27 @@ export default function AdminUsersManagementPage() {
         // Filter out admin roles - only show OWNER, CLEANER, MANAGER
         const allowedRoles = ['OWNER', 'CLEANER', 'MANAGER'];
         usersList = usersList.filter((u: User) => allowedRoles.includes(u.role));
+
+        // Status filter: active vs archived
+        if (statusFilter === 'active') {
+          usersList = usersList.filter((u: User) => u.isActive);
+        } else if (statusFilter === 'archived') {
+          usersList = usersList.filter((u: User) => !u.isActive);
+        }
         
-        // Client-side filtering
+        // Role filter
         if (filter !== 'all') {
           usersList = usersList.filter((u: User) => u.role === filter);
         }
         
+        // Search filter
         if (searchTerm) {
           const lowerTerm = searchTerm.toLowerCase();
           usersList = usersList.filter((u: User) => 
             u.email.toLowerCase().includes(lowerTerm) ||
             u.firstName?.toLowerCase().includes(lowerTerm) ||
-            u.lastName?.toLowerCase().includes(lowerTerm)
+            u.lastName?.toLowerCase().includes(lowerTerm) ||
+            (u.company?.name || '').toLowerCase().includes(lowerTerm)
           );
         }
         setUsers(usersList);
@@ -379,7 +389,7 @@ export default function AdminUsersManagementPage() {
           </div>
 
           {/* Filters & Search */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               
               {/* Search */}
@@ -414,6 +424,27 @@ export default function AdminUsersManagementPage() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Status Filter Tabs (Active / Archived / All) */}
+            <div className="flex p-1 bg-gray-100 rounded-lg overflow-x-auto">
+              {(['active', 'archived', 'all'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`
+                    px-4 py-1.5 text-xs font-semibold rounded-md transition-all whitespace-nowrap
+                    ${statusFilter === s
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'
+                    }
+                  `}
+                >
+                  {s === 'active' && 'Active Users'}
+                  {s === 'archived' && 'Archived Users'}
+                  {s === 'all' && 'All Statuses'}
+                </button>
+              ))}
             </div>
           </div>
 

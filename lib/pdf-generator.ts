@@ -331,55 +331,82 @@ export async function generateTaskPDF(
         doc.fontSize(16).font('Helvetica-Bold').text(title);
         doc.moveDown();
 
-        for (let i = 0; i < photos.length; i++) {
-          const photo = photos[i];
-          const imageBuffer = buffers[i];
+        // Layout constants for 2 images per row
+        const maxWidth = 230;  // ~ half page width minus margins
+        const maxHeight = 260;
+        const leftX = 50;
+        const rightX = 300;
+        const rowSpacing = 24;
 
-          // Add photo caption
-          if (photo.caption) {
-            doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}: ${photo.caption}`);
-            doc.moveDown(0.3);
-          } else {
-            doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}`);
-            doc.moveDown(0.3);
+        let currentY = doc.y;
+
+        for (let i = 0; i < photos.length; i += 2) {
+          // If we're too close to the bottom, start a new page
+          if (currentY > 700 - maxHeight) {
+            doc.addPage();
+            currentY = doc.y;
           }
 
-          if (photo.takenAt) {
-            doc.fontSize(8).font('Helvetica').text(`Taken: ${new Date(photo.takenAt).toLocaleString()}`);
-            doc.moveDown(0.3);
-          }
+          const leftPhoto = photos[i];
+          const rightPhoto = photos[i + 1];
+          const leftBuffer = buffers[i];
+          const rightBuffer = buffers[i + 1];
 
-          // Embed image if we successfully fetched it
-          if (imageBuffer) {
-            try {
-              // Embed image - fit to page width (A4 width minus margins = ~495 points)
-              const maxWidth = 495;
-              const maxHeight = 400;
+          // Caption for the row
+          const captionIndex =
+            rightPhoto && rightPhoto !== undefined
+              ? `Photos ${i + 1} & ${i + 2}`
+              : `Photo ${i + 1}`;
 
-              doc.image(imageBuffer, {
-                fit: [maxWidth, maxHeight],
-                align: 'center',
-              });
-              doc.moveDown();
-            } catch (error) {
-              console.error(`Error embedding photo ${i + 1}:`, error);
-              doc.fontSize(10).font('Helvetica').text('[Error embedding image]');
-              doc.moveDown();
+          doc.fontSize(10).font('Helvetica-Bold').text(captionIndex, leftX, currentY);
+          currentY = doc.y + 4;
+
+          // Helper to draw a single image at a given x
+          const drawImage = (photo: Photo | undefined, buffer: Buffer | null | undefined, x: number) => {
+            if (!photo) return;
+
+            let imageDrawn = false;
+
+            if (buffer) {
+              try {
+                doc.image(buffer, x, currentY, {
+                  fit: [maxWidth, maxHeight],
+                });
+                imageDrawn = true;
+              } catch (error) {
+                console.error(`Error embedding photo ${photo.id}:`, error);
+              }
             }
-          } else {
-            doc.fontSize(10).font('Helvetica').text('[Error loading image]');
-            doc.moveDown();
+
+            if (!imageDrawn) {
+              // If we couldn't draw the image, at least mark the spot
+              doc
+                .fontSize(10)
+                .font('Helvetica')
+                .text('[Error loading image]', x, currentY + maxHeight / 2);
+            }
+          };
+
+          drawImage(leftPhoto, leftBuffer, leftX);
+          drawImage(rightPhoto, rightBuffer, rightX);
+
+          // Row metadata (takenAt) under the images
+          const metaY = currentY + maxHeight + 4;
+          if (leftPhoto?.takenAt) {
+            doc
+              .fontSize(8)
+              .font('Helvetica')
+              .text(`Taken: ${new Date(leftPhoto.takenAt).toLocaleString()}`, leftX, metaY);
+          }
+          if (rightPhoto?.takenAt) {
+            doc
+              .fontSize(8)
+              .font('Helvetica')
+              .text(`Taken: ${new Date(rightPhoto.takenAt).toLocaleString()}`, rightX, metaY);
           }
 
-          // Add new page if not the last photo and we're close to bottom
-          if (i < photos.length - 1) {
-            const currentY = doc.y;
-            if (currentY > 700) { // If close to bottom of page
-              doc.addPage();
-            } else {
-              doc.moveDown(0.5);
-            }
-          }
+          // Advance Y for next row
+          currentY = metaY + rowSpacing;
         }
       };
 

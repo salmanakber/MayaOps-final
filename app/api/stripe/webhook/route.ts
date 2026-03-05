@@ -23,10 +23,13 @@ async function getStripeWebhookSecret(): Promise<string> {
   return process.env.STRIPE_WEBHOOK_SECRET || '';
 }
 
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');
+    console.log('Signature:', signature);
+    console.log('Body:', body);
 
     if (!signature) {
       return NextResponse.json({ error: 'No signature' }, { status: 400 });
@@ -34,7 +37,7 @@ export async function POST(request: NextRequest) {
 
     // Get webhook secret from SystemSetting
     const webhookSecret = await getStripeWebhookSecret();
-    
+    console.log('Webhook secret:', webhookSecret);
     if (!webhookSecret) {
       return NextResponse.json({ 
         error: 'Stripe webhook secret not configured. Please configure it in Admin Settings.' 
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     const event = await handleWebhook(body, signature, webhookSecret);
-
+    console.log('Event:', event);
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':

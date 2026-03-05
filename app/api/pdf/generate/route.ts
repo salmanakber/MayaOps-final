@@ -11,10 +11,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { taskId, async = false } = body
+    const { taskId, async = false, pdfType = 'combined' } = body
 
     if (!taskId) {
       return NextResponse.json({ success: false, message: "taskId is required" }, { status: 400 })
+    }
+
+    // Validate pdfType
+    if (!['before', 'after', 'combined'].includes(pdfType)) {
+      return NextResponse.json({ success: false, message: "pdfType must be 'before', 'after', or 'combined'" }, { status: 400 })
     }
 
     // Fetch task with all related data
@@ -37,8 +42,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, message: "Task not found" }, { status: 404 })
     }
 
-    // Check if there are any photos at all (no minimum requirement)
-    if (!task.photos || task.photos.length === 0) {
+    // Check photos based on pdfType
+    const beforePhotos = task.photos.filter(p => p.photoType === 'before');
+    const afterPhotos = task.photos.filter(p => p.photoType === 'after');
+    
+    if (pdfType === 'before' && beforePhotos.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "No before photos available for PDF generation",
+        errors: ["At least one before photo is required"],
+        beforeCount: 0,
+        afterCount: afterPhotos.length,
+      }, { status: 400 })
+    }
+    
+    if (pdfType === 'after' && afterPhotos.length === 0) {
+      return NextResponse.json({
+        success: false,
+        message: "No after photos available for PDF generation",
+        errors: ["At least one after photo is required"],
+        beforeCount: beforePhotos.length,
+        afterCount: 0,
+      }, { status: 400 })
+    }
+    
+    if (pdfType === 'combined' && (!task.photos || task.photos.length === 0)) {
       return NextResponse.json({
         success: false,
         message: "No photos available for PDF generation",
@@ -66,7 +94,7 @@ export async function POST(request: NextRequest) {
     // Generate PDF synchronously
     // Note: generateTaskPDF already handles upload to Cloudinary and DB record creation
     // Type assertion needed because assignedUser selection is partial
-    const result = await generateTaskPDF(task as any)
+    const result = await generateTaskPDF(task as any, pdfType as 'before' | 'after' | 'combined')
 
     if (!result.success) {
       return NextResponse.json({

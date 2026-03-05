@@ -14,7 +14,6 @@ export async function GET(request: NextRequest) {
   if (!(role === UserRole.OWNER || role === UserRole.MANAGER || role === UserRole.SUPER_ADMIN || role === UserRole.CLEANER)) {
     return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
   }
-
   // Check if user has active subscription/trial (except for super admins and owners)
   const subscriptionCheck = await requireActiveSubscription(tokenUser);
   if (!subscriptionCheck.allowed) {

@@ -20,7 +20,10 @@ export interface PDFGenerationResult {
   generatedAt: Date;
 }
 
-export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationResult> {
+export async function generateTaskPDF(
+  task: PDFTaskData,
+  pdfType: 'before' | 'after' | 'combined' = 'combined'
+): Promise<PDFGenerationResult> {
   const startTime = Date.now();
 
   try {
@@ -28,13 +31,40 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
     const beforePhotos = task.photos.filter(p => p.photoType === 'before');
     const afterPhotos = task.photos.filter(p => p.photoType === 'after');
     
-    // Only check if there are any photos at all
-    if (task.photos.length === 0) {
-      return {
-        success: false,
-        error: `No photos available for PDF generation`,
-        generatedAt: new Date(),
-      };
+    // Filter photos based on pdfType
+    let photosToInclude: Photo[] = [];
+    let sectionTitle = '';
+    
+    if (pdfType === 'before') {
+      photosToInclude = beforePhotos;
+      sectionTitle = 'Before Photos';
+      if (beforePhotos.length === 0) {
+        return {
+          success: false,
+          error: `No before photos available for PDF generation`,
+          generatedAt: new Date(),
+        };
+      }
+    } else if (pdfType === 'after') {
+      photosToInclude = afterPhotos;
+      sectionTitle = 'After Photos';
+      if (afterPhotos.length === 0) {
+        return {
+          success: false,
+          error: `No after photos available for PDF generation`,
+          generatedAt: new Date(),
+        };
+      }
+    } else {
+      // Combined - use all photos
+      photosToInclude = task.photos;
+      if (task.photos.length === 0) {
+        return {
+          success: false,
+          error: `No photos available for PDF generation`,
+          generatedAt: new Date(),
+        };
+      }
     }
 
     // Configure PDFKit font path for Next.js serverless compatibility
@@ -171,30 +201,58 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
       }
     };
 
-    // Fetch all images upfront with better error handling
-    const beforePhotoBuffers = await Promise.all(
-      beforePhotos.map(async (photo, index) => {
-        const buffer = await fetchImageBuffer(photo.url);
-        if (!buffer) {
-          console.error(`Failed to fetch before photo ${index + 1} from URL: ${photo.url}`);
-        }
-        return buffer;
-      })
-    );
-    const afterPhotoBuffers = await Promise.all(
-      afterPhotos.map(async (photo, index) => {
-        const buffer = await fetchImageBuffer(photo.url);
-        if (!buffer) {
-          console.error(`Failed to fetch after photo ${index + 1} from URL: ${photo.url}`);
-        }
-        return buffer;
-      })
-    );
-    
-    // Log summary of fetched images
-    const beforeSuccessCount = beforePhotoBuffers.filter(b => b !== null).length;
-    const afterSuccessCount = afterPhotoBuffers.filter(b => b !== null).length;
-    console.log(`Fetched ${beforeSuccessCount}/${beforePhotos.length} before photos and ${afterSuccessCount}/${afterPhotos.length} after photos`);
+    // Fetch images based on pdfType
+    let photoBuffers: (Buffer | null)[] = [];
+    if (pdfType === 'before') {
+      photoBuffers = await Promise.all(
+        photosToInclude.map(async (photo, index) => {
+          const buffer = await fetchImageBuffer(photo.url);
+          if (!buffer) {
+            console.error(`Failed to fetch before photo ${index + 1} from URL: ${photo.url}`);
+          }
+          return buffer;
+        })
+      );
+      console.log(`Fetched ${photoBuffers.filter(b => b !== null).length}/${photosToInclude.length} before photos`);
+    } else if (pdfType === 'after') {
+      photoBuffers = await Promise.all(
+        photosToInclude.map(async (photo, index) => {
+          const buffer = await fetchImageBuffer(photo.url);
+          if (!buffer) {
+            console.error(`Failed to fetch after photo ${index + 1} from URL: ${photo.url}`);
+          }
+          return buffer;
+        })
+      );
+      console.log(`Fetched ${photoBuffers.filter(b => b !== null).length}/${photosToInclude.length} after photos`);
+    } else {
+      // Combined - fetch both separately
+      const beforePhotoBuffers = await Promise.all(
+        beforePhotos.map(async (photo, index) => {
+          const buffer = await fetchImageBuffer(photo.url);
+          if (!buffer) {
+            console.error(`Failed to fetch before photo ${index + 1} from URL: ${photo.url}`);
+          }
+          return buffer;
+        })
+      );
+      const afterPhotoBuffers = await Promise.all(
+        afterPhotos.map(async (photo, index) => {
+          const buffer = await fetchImageBuffer(photo.url);
+          if (!buffer) {
+            console.error(`Failed to fetch after photo ${index + 1} from URL: ${photo.url}`);
+          }
+          return buffer;
+        })
+      );
+      const beforeSuccessCount = beforePhotoBuffers.filter(b => b !== null).length;
+      const afterSuccessCount = afterPhotoBuffers.filter(b => b !== null).length;
+      console.log(`Fetched ${beforeSuccessCount}/${beforePhotos.length} before photos and ${afterSuccessCount}/${afterPhotos.length} after photos`);
+      
+      // Store for combined PDF generation
+      (photoBuffers as any).before = beforePhotoBuffers;
+      (photoBuffers as any).after = afterPhotoBuffers;
+    }
 
     // Generate actual PDF using PDFKit
     const pdfBuffer = await new Promise<Buffer>((resolve, reject) => {
@@ -261,15 +319,17 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
         doc.moveDown();
       }
 
-      // Photo Evidence Section - Before Photos
-      if (beforePhotos.length > 0) {
-        doc.addPage();
-        doc.fontSize(16).font('Helvetica-Bold').text('Before Photos');
-        doc.moveDown();
+      // Photo Evidence Section
+      if (pdfType === 'before' || pdfType === 'after') {
+        // Single type PDF
+        if (photosToInclude.length > 0) {
+          doc.addPage();
+          doc.fontSize(16).font('Helvetica-Bold').text(sectionTitle);
+          doc.moveDown();
 
-        for (let i = 0; i < beforePhotos.length; i++) {
-          const photo = beforePhotos[i];
-          const imageBuffer = beforePhotoBuffers[i];
+          for (let i = 0; i < photosToInclude.length; i++) {
+            const photo = photosToInclude[i];
+            const imageBuffer = photoBuffers[i];
           
           // Add photo caption
           if (photo.caption) {
@@ -308,7 +368,7 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
           }
           
           // Add new page if not the last photo and we're close to bottom
-          if (i < beforePhotos.length - 1) {
+          if (i < photosToInclude.length - 1) {
             const currentY = doc.y;
             if (currentY > 700) { // If close to bottom of page
               doc.addPage();
@@ -317,17 +377,17 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
             }
           }
         }
-      }
+      } else {
+        // Combined PDF - Before Photos
+        const beforePhotoBuffers = (photoBuffers as any).before || [];
+        if (beforePhotos.length > 0) {
+          doc.addPage();
+          doc.fontSize(16).font('Helvetica-Bold').text('Before Photos');
+          doc.moveDown();
 
-      // Photo Evidence Section - After Photos
-      if (afterPhotos.length > 0) {
-        doc.addPage();
-        doc.fontSize(16).font('Helvetica-Bold').text('After Photos');
-        doc.moveDown();
-
-        for (let i = 0; i < afterPhotos.length; i++) {
-          const photo = afterPhotos[i];
-          const imageBuffer = afterPhotoBuffers[i];
+          for (let i = 0; i < beforePhotos.length; i++) {
+            const photo = beforePhotos[i];
+            const imageBuffer = beforePhotoBuffers[i];
           
           // Add photo caption
           if (photo.caption) {
@@ -366,7 +426,7 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
           }
           
           // Add new page if not the last photo and we're close to bottom
-          if (i < afterPhotos.length - 1) {
+          if (i < beforePhotos.length - 1) {
             const currentY = doc.y;
             if (currentY > 700) { // If close to bottom of page
               doc.addPage();
@@ -377,14 +437,80 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
         }
       }
 
+        // Combined PDF - After Photos
+        const afterPhotoBuffers = (photoBuffers as any).after || [];
+        if (afterPhotos.length > 0) {
+          doc.addPage();
+          doc.fontSize(16).font('Helvetica-Bold').text('After Photos');
+          doc.moveDown();
+
+          for (let i = 0; i < afterPhotos.length; i++) {
+            const photo = afterPhotos[i];
+            const imageBuffer = afterPhotoBuffers[i];
+            
+            // Add photo caption
+            if (photo.caption) {
+              doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}: ${photo.caption}`);
+              doc.moveDown(0.3);
+            } else {
+              doc.fontSize(10).font('Helvetica-Bold').text(`Photo ${i + 1}`);
+              doc.moveDown(0.3);
+            }
+            
+            if (photo.takenAt) {
+              doc.fontSize(8).font('Helvetica').text(`Taken: ${new Date(photo.takenAt).toLocaleString()}`);
+              doc.moveDown(0.3);
+            }
+            
+            // Embed image if we successfully fetched it
+            if (imageBuffer) {
+              try {
+                // Embed image - fit to page width (A4 width minus margins = ~495 points)
+                const maxWidth = 495;
+                const maxHeight = 400;
+                
+                doc.image(imageBuffer, {
+                  fit: [maxWidth, maxHeight],
+                  align: 'center',
+                });
+                doc.moveDown();
+              } catch (error) {
+                console.error(`Error embedding after photo ${i + 1}:`, error);
+                doc.fontSize(10).font('Helvetica').text('[Error embedding image]');
+                doc.moveDown();
+              }
+            } else {
+              doc.fontSize(10).font('Helvetica').text('[Error loading image]');
+              doc.moveDown();
+            }
+            
+            // Add new page if not the last photo and we're close to bottom
+            if (i < afterPhotos.length - 1) {
+              const currentY = doc.y;
+              if (currentY > 700) { // If close to bottom of page
+                doc.addPage();
+              } else {
+                doc.moveDown(0.5);
+              }
+            }
+          }
+        }
+      }
+
       // Summary
       doc.addPage();
       doc.fontSize(16).font('Helvetica-Bold').text('Summary');
       doc.moveDown();
       doc.fontSize(10).font('Helvetica');
-      doc.text(`Total Photos: ${task.photos.length}`);
-      doc.text(`Before Photos: ${beforePhotos.length}`);
-      doc.text(`After Photos: ${afterPhotos.length}`);
+      if (pdfType === 'before') {
+        doc.text(`Before Photos: ${photosToInclude.length}`);
+      } else if (pdfType === 'after') {
+        doc.text(`After Photos: ${photosToInclude.length}`);
+      } else {
+        doc.text(`Total Photos: ${task.photos.length}`);
+        doc.text(`Before Photos: ${beforePhotos.length}`);
+        doc.text(`After Photos: ${afterPhotos.length}`);
+      }
       doc.text(`Issues Reported: ${issues.length}`);
       doc.text(`Checklist Items: ${task.checklists?.length || 0}`);
       doc.moveDown();
@@ -419,6 +545,7 @@ export async function generateTaskPDF(task: PDFTaskData): Promise<PDFGenerationR
         url: pdfUrl,
         checksum,
         fileSize,
+        pdfType,
         generatedAt: new Date(),
       },
     });

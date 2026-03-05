@@ -656,6 +656,7 @@ model PDFRecord {
   url         String
   checksum    String   @unique // SHA-256 checksum for immutable verification
   fileSize    Int      @map("file_size") // bytes
+  pdfType     String   @default("combined") @map("pdf_type") // 'before', 'after', or 'combined'
   generatedAt DateTime @map("generated_at")
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -663,6 +664,7 @@ model PDFRecord {
 
   @@index([taskId])
   @@index([checksum])
+  @@index([pdfType])
   @@map("pdf_records")
 }
 

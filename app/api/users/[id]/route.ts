@@ -200,7 +200,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 }
 
-// DELETE /api/users/[id]
+// DELETE /api/users/[id] - soft delete (archive) user
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
   const auth = requireAuth(request);
   if (!auth) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
@@ -213,20 +213,47 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   try {
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true, role: true, companyId: true },
+      select: { id: true, role: true, companyId: true, isActive: true },
     });
     if (!target) return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
 
-    // Only SUPER_ADMIN and ADMIN_UNIQUE can delete users
-    if (requesterRole !== UserRole.SUPER_ADMIN && requesterRole !== UserRole.ADMIN_UNIQUE) {
-      return NextResponse.json({ success: false, message: 'Only Admin Unique users can delete users' }, { status: 403 });
+    // If already inactive, nothing to do
+    if (!target.isActive) {
+      return NextResponse.json({ success: true, message: 'User already archived' });
     }
 
-    await prisma.user.delete({
+    // Permission rules:
+    // - OWNER can archive MANAGER and CLEANER in their own company only
+    // - SUPER_ADMIN and ADMIN_UNIQUE can archive any user
+    // - DEVELOPER can archive any user (global maintenance role)
+    const isGlobalAdmin =
+      requesterRole === UserRole.SUPER_ADMIN ||
+      requesterRole === UserRole.ADMIN_UNIQUE ||
+      requesterRole === UserRole.DEVELOPER;
+
+    if (!isGlobalAdmin) {
+      if (requesterRole !== UserRole.OWNER) {
+        return NextResponse.json({ success: false, message: 'Insufficient permissions to archive user' }, { status: 403 });
+      }
+
+      // OWNER: must be same company
+      if (!tokenUser.companyId || !target.companyId || tokenUser.companyId !== target.companyId) {
+        return NextResponse.json({ success: false, message: 'Forbidden' }, { status: 403 });
+      }
+
+      // OWNER can only archive MANAGER or CLEANER
+      if (target.role !== UserRole.MANAGER && target.role !== UserRole.CLEANER) {
+        return NextResponse.json({ success: false, message: 'Owners can only archive managers and cleaners' }, { status: 403 });
+      }
+    }
+
+    // Soft delete: mark user as inactive (archived)
+    await prisma.user.update({
       where: { id },
+      data: { isActive: false },
     });
 
-    return NextResponse.json({ success: true, message: 'User deleted successfully' });
+    return NextResponse.json({ success: true, message: 'User archived successfully' });
   } catch (error) {
     console.error('User DELETE error:', error);
     return NextResponse.json({ success: false, message: 'Internal server error' }, { status: 500 });
